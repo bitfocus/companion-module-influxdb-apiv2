@@ -1,12 +1,12 @@
 {
-	"id": "companion-module-influxdb",
-	"name": "companion-module-influxdb",
+	"id": "companion-module-influxdb-apiv2",
+	"name": "companion-module-influxdb-apiv2",
 	"shortname": "influxdb",
 	"description": "Sends data to InfluxDB",
-	"version": "0.0.0",
+	"version": "1.0.0",
 	"license": "MIT",
-	"repository": "git+https://github.com/bitfocus/companion-module-influxdb.git",
-	"bugs": "https://github.com/bitfocus/companion-module-influxdb/issues",
+	"repository": "git+https://github.com/bitfocus/companion-module-influxdb-apiv2.git",
+	"bugs": "https://github.com/bitfocus/companion-module-influxdb-apiv2/issues",
 	"maintainers": [
 		{
 			"name": "Elliot Matson",
@@ -22,5 +22,5 @@
 	"legacyIds": [],
 	"manufacturer": "InfluxDB",
 	"products": ["InfluxDB"],
-	"keywords": []
+	"keywords": ["Logging", "InfluxDB", "Database"]
 }

@@ -15,8 +15,7 @@ class ModuleInstance extends InstanceBase {
 		this.config = config
 		this.influx = new InfluxDB({
 			url: this.config.url,
-			token: this.config.token,
-			timeout: 5000,
+			token: this.config.token
 		})
 		this.ping = new PingAPI(this.influx)
 		
