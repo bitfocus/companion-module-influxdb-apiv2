@@ -186,7 +186,9 @@ module.exports = function (self) {
 					self.writeApi.writePoint(point)
 					self.log(
 						'debug',
-						`Sent to Influx: ${measurementString},${tagsString} ${fieldString}=${event.options.value} ${Date.now() * 1000000}`
+						`Sent to Influx: ${measurementString},${tagsString} ${fieldString}=${event.options.value} ${
+							Date.now() * 1000000
+						}`
 					)
 				} catch (error) {
 					self.log('error', `Error sending to Influx: ${error.message}`)
