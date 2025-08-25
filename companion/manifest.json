@@ -1,9 +1,9 @@
 {
-	"id": "companion-module-influxdb-apiv2",
-	"name": "companion-module-influxdb-apiv2",
+	"id": "influxdb-apiv2",
+	"name": "influxdb-apiv2",
 	"shortname": "influxdb",
 	"description": "Sends data to InfluxDB",
-	"version": "1.0.1",
+	"version": "0.0.0",
 	"license": "MIT",
 	"repository": "git+https://github.com/bitfocus/companion-module-influxdb-apiv2.git",
 	"bugs": "https://github.com/bitfocus/companion-module-influxdb-apiv2/issues",
@@ -21,6 +21,6 @@
 	},
 	"legacyIds": [],
 	"manufacturer": "InfluxDB",
-	"products": ["InfluxDB"],
-	"keywords": ["Logging", "InfluxDB", "Database"]
+	"products": ["InfluxDB v2"],
+	"keywords": ["Logging", "InfluxDB", "Time Series", "Database"]
 }
