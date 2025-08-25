@@ -6,7 +6,7 @@ const UpdateVariableDefinitions = require('./variables')
 const { InfluxDB } = require('@influxdata/influxdb-client')
 const { PingAPI, HealthAPI } = require('@influxdata/influxdb-client-apis')
 
-class ModuleInstance extends InstanceBase {
+class InfluxInstance extends InstanceBase {
 	constructor(internal) {
 		super(internal)
 	}
@@ -15,10 +15,10 @@ class ModuleInstance extends InstanceBase {
 		this.config = config
 		this.influx = new InfluxDB({
 			url: this.config.url,
-			token: this.config.token
+			token: this.config.token,
 		})
 		this.ping = new PingAPI(this.influx)
-		
+
 		this.ping
 			.getPing() // check ping
 			.then(() => {
@@ -44,7 +44,6 @@ class ModuleInstance extends InstanceBase {
 			})
 
 		this.writeApi = this.influx.getWriteApi(this.config.org, this.config.bucket)
-
 
 		this.updateActions() // export actions
 		this.updateFeedbacks() // export feedbacks
@@ -109,4 +108,4 @@ class ModuleInstance extends InstanceBase {
 	}
 }
 
-runEntrypoint(ModuleInstance, UpgradeScripts)
+runEntrypoint(InfluxInstance, UpgradeScripts)
