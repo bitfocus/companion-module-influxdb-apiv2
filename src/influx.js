@@ -64,6 +64,24 @@ class InfluxConnection {
 		return { version: typeof result === 'object' ? result?.version : undefined }
 	}
 
+	/**
+	 * Check the token, org and bucket without writing any data, by posting an empty body
+	 * to the write endpoint (the health endpoint does not need a token).
+	 * InfluxDB 2.x answers 204 when it would accept the write, or 401/404/400 with the reason.
+	 */
+	async checkWriteAccess() {
+		try {
+			await this.influx.transport.request(this.writeApi.path, '', {
+				method: 'POST',
+				headers: { 'content-type': 'text/plain; charset=utf-8' },
+			})
+		} catch (e) {
+			// A server that rejects the empty body itself has already accepted the token, org and bucket
+			if (e?.statusCode === 400 && describeError(e).status !== 'bad_config') return
+			throw e
+		}
+	}
+
 	/** @param {import('@influxdata/influxdb-client').Point} point */
 	writePoint(point) {
 		this.writeApi.writePoint(point)

@@ -122,6 +122,7 @@ class InfluxInstance extends InstanceBase {
 
 		try {
 			const { version } = await connection.checkHealth()
+			await connection.checkWriteAccess()
 			if (generation !== this.generation) return
 
 			if (!this.healthy || this.healthError) {

@@ -66,6 +66,20 @@ describe('InfluxInstance lifecycle', () => {
 		await vi.waitFor(() => expect(t.lastStatus().status).toBe('connection_failure'))
 	})
 
+	test('a bad token is reported at startup, before anything is written', async () => {
+		fake.state.requiredToken = 'right'
+		await t.instance.init(config(), true, { token: 'wrong' })
+		await vi.waitFor(() => expect(t.lastStatus().status).toBe('authentication_failure'))
+		expect(fake.state.probes).toBeGreaterThan(0)
+		expect(fake.state.writes).toHaveLength(0)
+	})
+
+	test('a missing bucket is reported at startup', async () => {
+		fake.state.writeStatus = 404
+		await t.instance.init(config(), true, {})
+		await vi.waitFor(() => expect(t.lastStatus().status).toBe('bad_config'))
+	})
+
 	test('write failures show in the status and clear on the next success', async () => {
 		await t.instance.init(config(), true, { token: 'bad' })
 		await vi.waitFor(() => expect(t.lastStatus().status).toBe('ok'))
