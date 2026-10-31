@@ -34,7 +34,7 @@ function GetConfigFields() {
 			id: 'token',
 			label: 'API Token',
 			width: 8,
-			description: 'Needs write access to the bucket',
+			description: 'Needs write access to the bucket, and read access for Run Flux Query',
 		},
 		{
 			type: 'textinput',
@@ -59,7 +59,8 @@ function GetConfigFields() {
 			label: 'Default tags',
 			width: 8,
 			default: DEFAULTS.defaultTags,
-			tooltip: 'Tags added to every point written by the point actions, eg site=main,source=companion',
+			tooltip:
+				'Tags added to every point written by Write Point and the single-field point actions (not the raw Write action), eg site=main,source=companion',
 		},
 		{
 			type: 'static-text',
@@ -111,7 +112,7 @@ function GetConfigFields() {
 			type: 'number',
 			id: 'healthInterval',
 			label: 'Health check interval (s)',
-			tooltip: '0 disables periodic health checks',
+			tooltip: 'Checks the server, token, organization and bucket without writing data. 0 disables the periodic check.',
 			width: 4,
 			default: DEFAULTS.healthInterval,
 			min: 0,

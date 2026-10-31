@@ -4,7 +4,7 @@
 	"id": "influxdb-apiv2",
 	"name": "InfluxDB v2",
 	"shortname": "influxdb",
-	"description": "Write data points to InfluxDB 2.x (and InfluxDB 3 via the v2-compatible write API)",
+	"description": "Write data points to and run Flux queries on InfluxDB 2.x",
 	"version": "0.0.0",
 	"license": "MIT",
 	"repository": "git+https://github.com/bitfocus/companion-module-influxdb-apiv2.git",

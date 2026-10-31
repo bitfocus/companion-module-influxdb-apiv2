@@ -16,7 +16,7 @@ const tagsOption = {
 	label: 'Tags',
 	default: 'tag1=value1,tag2=value2',
 	tooltip:
-		'Comma separated key=value pairs. Leave empty for no tags. Write \\, or \\= for a literal comma or equals sign.',
+		'Comma separated key=value pairs. Leave empty for no tags. Write \\, \\= or \\ (backslash space) for a literal comma, equals sign or space. A tag cannot end with a backslash.',
 	useVariables: true,
 }
 

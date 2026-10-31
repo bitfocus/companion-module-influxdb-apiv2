@@ -32,6 +32,7 @@ Requires **Companion 5.0 or later** (module API 2.1). Existing connections and b
 - The API token is stored as a secret
 - Points are sent every second by default (previously every 60 seconds); see **Flush interval**
 - Every option accepts variables, and any option can be switched to an expression
+- Default tags are added by Write Point and the single-field point actions, not by the raw Write action
 - The connection status shows why writes fail (unreachable server, rejected token, missing organization or bucket, rejected data) and checks the token, organization and bucket at startup and periodically without writing any data
 
 ### Fixed

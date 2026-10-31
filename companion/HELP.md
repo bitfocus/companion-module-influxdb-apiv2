@@ -1,27 +1,27 @@
 ## InfluxDB
 
-Writes data points to InfluxDB 2.x and runs Flux queries. InfluxDB 3 (Core, Enterprise and Cloud) also works through its v2-compatible write API.
+Writes data points to InfluxDB 2.x and runs Flux queries. Writing to InfluxDB 3 (Core, Enterprise and Cloud) should also work through its v2-compatible write API, but the module has only been tested with InfluxDB 2.x, and Run Flux Query needs InfluxDB 2.x.
 
 ### Configuration
 
 - **InfluxDB URL** (required): for example `http://localhost:8086` (InfluxDB 2.x) or `http://localhost:8181` (InfluxDB 3).
-- **API Token**: a token with write access to the bucket. It is stored as a secret.
+- **API Token**: a token with write access to the bucket (and read access if you use Run Flux Query). It is stored as a secret.
 - **Organization**: name or ID of the organization. Required for InfluxDB 2.x; InfluxDB 3 ignores it.
 - **Bucket** (required): name or ID of the bucket (on InfluxDB 3 this is the database name).
-- **Default tags**: tags added to every point written by the point actions, for example `site=main,source=companion`.
+- **Default tags**: tags added to every point written by Write Point and the Float/String/Boolean point actions (not the raw **Write** action), for example `site=main,source=companion`.
 
 Advanced settings:
 
 - **Flush interval / Batch size**: writes are buffered and sent in batches. The buffer is sent every flush interval (default 1 second), or as soon as it holds a batch's worth of points.
 - **Max retries**: how many times a write is retried after a temporary error, such as the server being unavailable.
 - **Request timeout**, **Compress writes (gzip)**, **Ignore TLS certificate errors** (only for self-signed certificates on a trusted network).
-- **Health check interval**: how often the connection checks that InfluxDB is reachable. Set it to 0 to disable.
+- **Health check interval**: how often the connection checks that InfluxDB is reachable and that the token can write to the organization and bucket (without writing any data). The check also runs when the connection starts. Set it to 0 to disable the periodic check.
 
 The connection status shows the reason for problems with the configured bucket: an unreachable server, a rejected token, a missing organization or bucket, or data rejected by InfluxDB. It goes back to OK as soon as writes succeed again. Failures when an action writes to its own **Bucket** or **Organization** don't change the status; they appear in the log and in the `last_error` and `write_errors` variables.
 
 ### Actions
 
-Every text option accepts variables, and any option can be switched to an expression.
+Every text option accepts variables, and any option can be switched to an expression. If an action's input is invalid (for example a value that is not a number), a warning is logged and that action writes nothing.
 
 - **Write Point**: write one point with any number of fields. Fields are comma separated `key=value` pairs, and the type comes from how the value is written, as in line protocol:
   - `21.5` or `1e3`: float
@@ -29,10 +29,12 @@ Every text option accepts variables, and any option can be switched to an expres
   - `true` / `false` (also `t`, `f`, `True`, `FALSE`, ...): boolean
   - `"some text"`: string. Commas and `=` are fine inside the quotes; write `\"` for a quote.
 
+  Integers must fit in 64 bits. Field names follow the same escaping rules as tags (see below). A field that can't be read is skipped with a warning, and the point is not written if no field is valid.
+
   For example `temp=21.5, count=3i, ok=true, note="studio A"`. Leave **Timestamp** empty to use the time of the press, or give a number in the chosen precision or a date such as `2026-10-31T09:00:00Z`. **Bucket** and **Organization** can override the connection's settings for this action. Up to 20 overrides are kept open at once; when more are used, the least recently used one is flushed and closed. Failures on an override are reported in the log and the `last_error` variable rather than the connection status.
 
 - **Write Float Point**, **Write String Point**, **Write Boolean Point**: write one point with a single field. The measurement, tags and field name are escaped for you.
-- **Write**: write one raw line of line protocol from a measurement, tags and fields. String field values must be in double quotes, and you are responsible for escaping. The timestamp is added automatically.
+- **Write**: write one raw line of line protocol from a measurement, tags and fields. String field values must be in double quotes, and you are responsible for escaping. The timestamp is added automatically. Default tags are not added to this action.
 - **Flush Buffer**: send everything that is buffered now.
 - **Run Flux Query**: run a Flux query (InfluxDB 2.x) and return the result. In the action's **Store Action Result** setting, choose a local, page or custom variable to keep it in, then use that variable on the button or in later actions. **Return** picks what comes back:
   - the `_value` of the first row (the default; pair it with `|> last()` to show the latest reading)
@@ -48,8 +50,8 @@ For **Write Boolean Point** in expression mode, the expression can return `true`
 
 ### Feedbacks
 
-- **Connection OK**: true while InfluxDB is reachable, the token is accepted and writes are succeeding.
-- **Writes failing**: true when writes are being rejected, the server is unreachable or the config is wrong.
+- **Connection OK**: true while InfluxDB is reachable, the token is accepted and writes to the configured bucket are succeeding.
+- **Writes failing**: true when writes to the configured bucket are being rejected, the server is unreachable or the config is wrong. Failures on an action's own bucket don't affect either feedback.
 
 ### Variables
 
