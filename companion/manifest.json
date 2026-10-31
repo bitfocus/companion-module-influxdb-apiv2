@@ -1,8 +1,10 @@
 {
+	"$schema": "../node_modules/@companion-module/base/assets/manifest.schema.json",
+	"type": "connection",
 	"id": "influxdb-apiv2",
-	"name": "influxdb-apiv2",
+	"name": "InfluxDB v2",
 	"shortname": "influxdb",
-	"description": "Sends data to InfluxDB",
+	"description": "Write data points to InfluxDB 2.x (and InfluxDB 3 via the v2-compatible write API)",
 	"version": "0.0.0",
 	"license": "MIT",
 	"repository": "git+https://github.com/bitfocus/companion-module-influxdb-apiv2.git",
@@ -14,10 +16,10 @@
 		}
 	],
 	"runtime": {
-		"type": "node18",
+		"type": "node22",
 		"api": "nodejs-ipc",
 		"apiVersion": "0.0.0",
-		"entrypoint": "../main.js"
+		"entrypoint": "../src/index.mjs"
 	},
 	"legacyIds": [],
 	"manufacturer": "InfluxDB",
