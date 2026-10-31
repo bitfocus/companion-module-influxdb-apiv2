@@ -21,8 +21,9 @@ class InfluxConnection {
 	 * @param {(error: Error, lines: string[], attempt: number, target: WriteTarget) => void} callbacks.onWriteFailed
 	 * @param {(message: string) => void} [callbacks.onClientLog] the client's own diagnostics (retries etc)
 	 * @param {(count: number) => void} [callbacks.onQueued] lines added to the buffer
+	 * @param {(count: number, target: WriteTarget) => void} [callbacks.onDropped] lines discarded when an unused writer is closed
 	 */
-	constructor(config, { onWriteSuccess, onWriteFailed, onClientLog, onQueued }) {
+	constructor(config, { onWriteSuccess, onWriteFailed, onClientLog, onQueued, onDropped }) {
 		// By default the client prints every failure with a full stack trace to the console.
 		// Failures already reach onWriteFailed, so route its own messages somewhere quieter.
 		setLogger({
@@ -41,6 +42,9 @@ class InfluxConnection {
 		this.onQueued = onQueued
 		this.onWriteSuccess = onWriteSuccess
 		this.onWriteFailed = onWriteFailed
+		this.onDropped = onDropped
+		/** Target info for each writer, to name the bucket when reporting dropped points */
+		this.writerInfo = new Map()
 
 		/** One buffered writer per org/bucket; actions can target a bucket other than the default */
 		this.writeApis = new Map()
@@ -119,6 +123,7 @@ class InfluxConnection {
 				},
 			})
 			this.writeApis.set(key, writeApi)
+			this.writerInfo.set(writeApi, info)
 		}
 		return writeApi
 	}
@@ -128,13 +133,21 @@ class InfluxConnection {
 		for (const [key, writeApi] of this.writeApis) {
 			if (writeApi === this.writeApi) continue
 			this.writeApis.delete(key)
-			// flush(true) also sends points waiting to be retried, which close() alone would drop
+			// flush(true) also sends points waiting to be retried, which close() alone would drop.
+			// If the flush fails (server down) whatever is left is discarded, so say so.
+			const info = this.writerInfo.get(writeApi)
+			const discard = () => {
+				const dropped = writeApi.dispose()
+				if (dropped > 0) this.onDropped?.(dropped, info)
+			}
 			const closing = writeApi
 				.flush(true)
-				.catch(() => {})
-				.then(() => writeApi.close())
-				.catch(() => writeApi.dispose())
-				.finally(() => this.closingWriters.delete(writeApi))
+				.then(() => writeApi.close(), discard)
+				.catch(discard)
+				.finally(() => {
+					this.closingWriters.delete(writeApi)
+					this.writerInfo.delete(writeApi)
+				})
 			this.closingWriters.set(writeApi, closing)
 			return
 		}

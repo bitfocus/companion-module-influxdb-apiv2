@@ -11,7 +11,7 @@ describe('InfluxConnection', () => {
 
 	beforeEach(async () => {
 		fake = await fakeInflux()
-		events = { success: [], failed: [] }
+		events = { success: [], failed: [], dropped: [] }
 	})
 
 	afterEach(async () => {
@@ -27,6 +27,7 @@ describe('InfluxConnection', () => {
 		connection = new InfluxConnection(config, {
 			onWriteSuccess: (lines) => events.success.push(lines),
 			onWriteFailed: (error, lines) => events.failed.push({ error, lines }),
+			onDropped: (count, target) => events.dropped.push({ count, bucket: target.bucket }),
 		})
 		return connection
 	}
@@ -97,6 +98,19 @@ describe('InfluxConnection', () => {
 		expect(await closing).toBeInstanceOf(Error)
 		expect(disposed).toBe(true)
 		connection = null
+	})
+
+	test('evicting a writer whose points cannot be sent reports how many were dropped', async () => {
+		fake.state.writeStatus = 503
+		// With retries on, a failed batch waits in the retry queue, which is what eviction can lose
+		const c = connect({ maxRetries: 3 })
+		for (let i = 0; i < 20; i++) c.writePoint(new Point('m').floatField('v', i), { bucket: `b${i}` })
+		c.writePoint(new Point('m').floatField('v', 1), { bucket: 'b0' })
+		c.writePoint(new Point('m').floatField('v', 99), { bucket: 'new' })
+		await Promise.all(c.closingWriters.values())
+		expect(events.dropped).toEqual([{ count: 1, bucket: 'b1' }])
+		fake.state.writeStatus = 204
+		await c.close()
 	})
 
 	test('using an override again keeps it from being evicted', async () => {

@@ -35,9 +35,12 @@ function trimUnescaped(str) {
 	const s = str.replace(/^\s+/, '')
 	let end = s.length
 	while (end > 0 && /\s/.test(s[end - 1])) {
-		let backslashes = 0
-		for (let i = end - 2; i >= 0 && s[i] === '\\'; i--) backslashes++
-		if (backslashes % 2 === 1) break
+		// Only a space can be escaped; a backslash before a tab or newline is left for nameProblem to refuse
+		if (s[end - 1] === ' ') {
+			let backslashes = 0
+			for (let i = end - 2; i >= 0 && s[i] === '\\'; i--) backslashes++
+			if (backslashes % 2 === 1) break
+		}
 		end--
 	}
 	return s.slice(0, end)
@@ -195,10 +198,12 @@ function parseFields(input) {
 		} else if (/^[+-]?\d+i$/.test(value)) {
 			const n = BigInt(value.slice(0, -1))
 			if (n < INT64_MIN || n > INT64_MAX) errors.push(`Field "${key}" is outside the 64-bit integer range`)
-			else fields.push({ key, type: 'int', value: value.slice(0, -1) })
+			else fields.push({ key, type: 'int', value: n.toString() })
 		} else if (/^\d+u$/.test(value)) {
-			if (BigInt(value.slice(0, -1)) > UINT64_MAX) errors.push(`Field "${key}" is outside the 64-bit unsigned range`)
-			else fields.push({ key, type: 'uint', value: value.slice(0, -1) })
+			const n = BigInt(value.slice(0, -1))
+			if (n > UINT64_MAX) errors.push(`Field "${key}" is outside the 64-bit unsigned range`)
+			// Normalised, as the client rejects a uint longer than 20 digits even with leading zeros
+			else fields.push({ key, type: 'uint', value: n.toString() })
 		} else if (BOOL_TRUE.includes(value) || BOOL_FALSE.includes(value)) {
 			fields.push({ key, type: 'bool', value: BOOL_TRUE.includes(value) })
 		} else if (FLOAT_RE.test(value)) {

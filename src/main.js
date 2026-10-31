@@ -129,6 +129,13 @@ class InfluxInstance extends InstanceBase {
 					this.refreshStatus()
 				},
 				onClientLog: (message) => this.log('debug', `InfluxDB client: ${message}`),
+				onDropped: (count, target) => {
+					if (generation !== this.generation) return
+					this.log(
+						'warn',
+						`Dropped ${count} point(s) for bucket "${target?.bucket}" that could not be sent before closing its unused writer`,
+					)
+				},
 			})
 		} catch (e) {
 			this.configErrors = [e.message]

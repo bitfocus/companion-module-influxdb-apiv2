@@ -16,7 +16,7 @@ const tagsOption = {
 	label: 'Tags',
 	default: 'tag1=value1,tag2=value2',
 	tooltip:
-		'Comma separated key=value pairs. Leave empty for no tags. Escapes: \\, comma, \\= equals sign, backslash-space for a leading or trailing space, \\\\ backslash. A backslash cannot end a tag.',
+		'Comma separated key=value pairs. Leave empty for no tags. Escapes: \\, comma, \\= equals sign, backslash-space for a leading or trailing space, \\\\ backslash. A backslash cannot end a tag or come right before a comma, equals sign or space.',
 	useVariables: true,
 }
 

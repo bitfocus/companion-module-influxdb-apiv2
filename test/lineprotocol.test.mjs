@@ -39,6 +39,12 @@ describe('parseTags', () => {
 		expect(parseTags('share=\\\\\\\\nas\\media').tags).toEqual({ share: '\\\\nas\\media' })
 	})
 
+	test('only a space can be escaped at the end; a backslash before a tab is refused', () => {
+		const result = parseTags('tab=x\\\t,ok=1')
+		expect(result.tags).toEqual({ ok: '1' })
+		expect(result.errors[0]).toMatch(/backslash/)
+	})
+
 	test('a literal backslash right before a separator is rejected', () => {
 		const result = parseTags('b=x\\\\\\ y,ok=1')
 		expect(result.tags).toEqual({ ok: '1' })
@@ -104,6 +110,13 @@ describe('parseFields', () => {
 		const result = parseFields('ok=1, dir\\\\=2')
 		expect(result.fields.map((f) => f.key)).toEqual(['ok'])
 		expect(result.errors[0]).toMatch(/backslash/)
+	})
+
+	test('integers are normalised, so zero padding cannot exceed the client length limit', () => {
+		expect(parseFields('u=0000000000000000000001u, i=+007i').fields).toEqual([
+			{ key: 'u', type: 'uint', value: '1' },
+			{ key: 'i', type: 'int', value: '7' },
+		])
 	})
 
 	test('out-of-range numbers are skipped one field at a time', () => {

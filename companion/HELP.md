@@ -42,7 +42,7 @@ Every text option accepts variables, and most options can be switched to an expr
   - all rows, as a list (up to **Maximum rows**)
   - the number of rows
 
-  An empty result returns nothing (null), or 0 rows. The token needs read access to the bucket. Errors such as a Flux syntax error or a missing bucket appear in the connection log. Variables in the query are replaced before it runs, so a query can depend on other buttons.
+  **Organization** can override the connection's organization for this query. An empty result returns nothing (null), or 0 rows. The token needs read access to the bucket. Errors such as a Flux syntax error or a missing bucket appear in the connection log. Variables in the query are replaced before it runs, so a query can depend on other buttons.
 
 **Tags** are comma separated `key=value` pairs, for example `room=studio,source=companion`. Leave the field empty for no tags. Values may contain `=` and spaces. These backslash escapes are understood:
 
@@ -51,7 +51,7 @@ Every text option accepts variables, and most options can be switched to an expr
 - a backslash before a space keeps a space at the start or end of a value, which is otherwise trimmed
 - `\\` a single backslash, for example `\\\\nas\media` for the path `\\nas\media`
 
-Any other backslash is kept as is (for example `C:\temp`). Measurements need no escapes: type commas and spaces as they are. A backslash that is left over after these escapes can't be the last character of a tag, measurement or field name, or come right before a comma, equals sign or space; InfluxDB would misread the line, so the module refuses it with a warning.
+The escapes also apply to text that comes from variables, so a variable holding `\\nas\media` is stored as `\nas\media`. Any other backslash is kept as is (for example `C:\temp`). Measurements need no escapes: type commas and spaces as they are. A backslash that is left over after these escapes can't be the last character of a tag, measurement or field name, or come right before a comma, equals sign or space; InfluxDB would misread the line, so the module refuses it with a warning.
 
 For **Write Boolean Point** in expression mode, the expression can return `true`/`false`, `1`/`0`, `yes`/`no` or `on`/`off`.
 

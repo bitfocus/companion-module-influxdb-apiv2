@@ -16,7 +16,7 @@ yarn package
 
 ## 2.0.0
 
-Requires **Companion 5.0 or later** (module API 2.1). Existing connections and buttons from 1.x carry over: the API token moves into Companion's secret store automatically, and every existing action keeps its options.
+Requires **Companion 5.0 or later** (module API 2.1). Existing connections and buttons from 1.x carry over: the API token moves into Companion's secret store automatically, and every existing action keeps its options. Check any tags that contain backslashes: see the escapes change below.
 
 ### New
 
@@ -31,7 +31,8 @@ Requires **Companion 5.0 or later** (module API 2.1). Existing connections and b
 
 - The API token is stored as a secret
 - Points are sent every second by default (previously every 60 seconds); see **Flush interval**
-- Every option accepts variables, and any option can be switched to an expression
+- Every text option accepts variables, and most options can be switched to an expression
+- Tags in the point actions (not the raw Write action) now use backslash escapes (`\,` `\=` `\\` and a backslash before a space), including text that comes from variables. A tag that 1.x stored as typed may be stored differently: for example `share=\\nas\media` used to keep both backslashes and now stores one. Write `\\\\nas\media` to keep the old value
 - Default tags are added by Write Point and the single-field point actions, not by the raw Write action
 - The connection status shows why writes fail (unreachable server, rejected token, missing organization or bucket, rejected data) and checks the token, organization and bucket at startup and periodically without writing any data
 
