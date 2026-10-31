@@ -25,9 +25,9 @@ function splitUnescaped(str, sep, limit = Infinity) {
 	return parts
 }
 
-/** Remove backslash escapes, eg `a\,b` -> `a,b` */
+/** Remove the escapes users may type (`\,` `\=` `\\`); other backslashes are kept, eg `C:\temp` */
 function unescape(str) {
-	return str.replace(/\\(.)/g, '$1')
+	return str.replace(/\\([,=\\])/g, '$1')
 }
 
 /**
@@ -51,6 +51,11 @@ function parseTags(input) {
 
 		if (key === '' || value === '') {
 			errors.push(`Ignoring malformed tag "${entry.trim()}" (expected key=value)`)
+			continue
+		}
+		// The client does not escape backslashes, so a trailing one would escape the separator after it
+		if (key.endsWith('\\') || value.endsWith('\\')) {
+			errors.push(`Ignoring tag "${entry.trim()}": a tag cannot end with a backslash`)
 			continue
 		}
 		tags[key] = value
@@ -184,8 +189,9 @@ function parseTimestamp(input, precision = 'ms') {
 		return (BigInt(str) * factor).toString()
 	}
 
-	const ms = Date.parse(str)
-	if (Number.isNaN(ms)) throw new Error(`"${str}" is not a timestamp or date`)
+	// Only ISO style dates: Date.parse also accepts things like "12.5" or "Monday 5"
+	const ms = /^\d{4}-\d{2}-\d{2}/.test(str) ? Date.parse(str) : NaN
+	if (Number.isNaN(ms)) throw new Error(`"${str}" is not a timestamp or a date like 2026-10-31T09:00:00Z`)
 	return (BigInt(ms) * PRECISION_TO_NS.ms).toString()
 }
 

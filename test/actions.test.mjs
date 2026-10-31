@@ -103,6 +103,24 @@ describe('actions', () => {
 		expect(t.targets).toEqual([{ bucket: 'other', org: '' }])
 	})
 
+	test('write point keeps 64-bit integer precision and rejects out-of-range integers', async () => {
+		await t.run('writePoint', {
+			measurement: 'm',
+			tags: '',
+			fields: 'big=9007199254740993i, small=-5i',
+			precision: 'ms',
+		})
+		expect(t.written.map(noTs)).toEqual(['m big=9007199254740993i,small=-5i'])
+		await t.run('writePoint', { measurement: 'm', tags: '', fields: 'huge=9223372036854775808i', precision: 'ms' })
+		expect(t.written).toHaveLength(1)
+		expect(t.logs.at(-1).message).toMatch(/64-bit/)
+	})
+
+	test('Maximum rows clamps out-of-range expressions instead of skipping the action', () => {
+		const maxRows = t.definitions.runQuery.options.find((o) => o.id === 'maxRows')
+		expect(maxRows.clampValues).toBe(true)
+	})
+
 	test('write point skips bad fields but writes the rest', async () => {
 		await t.run('writePoint', { measurement: 'm', tags: '', fields: 'good=1, bad=nope', precision: 'ms' })
 		expect(t.written.map(noTs)).toEqual(['m good=1'])

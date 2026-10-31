@@ -14,7 +14,7 @@
 		"url": "git+https://github.com/bitfocus/companion-module-influxdb-apiv2.git"
 	},
 	"engines": {
-		"node": "^22.20",
+		"node": "^22.20 || ^26",
 		"yarn": "^4"
 	},
 	"dependencies": {

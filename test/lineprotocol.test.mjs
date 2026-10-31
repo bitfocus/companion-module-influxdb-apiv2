@@ -22,6 +22,17 @@ describe('parseTags', () => {
 		expect(parseTags('a\\=b=c').tags).toEqual({ 'a=b': 'c' })
 	})
 
+	test('backslashes that are not escapes are kept', () => {
+		expect(parseTags('dir=C:\\temp\\x').tags).toEqual({ dir: 'C:\\temp\\x' })
+		expect(parseTags('a=b\\\\c').tags).toEqual({ a: 'b\\c' })
+	})
+
+	test('a tag ending in a backslash is rejected instead of breaking the line', () => {
+		const result = parseTags('ok=1,p=C:\\')
+		expect(result.tags).toEqual({ ok: '1' })
+		expect(result.errors[0]).toMatch(/backslash/)
+	})
+
 	test('malformed entries are reported and skipped', () => {
 		const result = parseTags('good=1,nokey,=novalue,empty=')
 		expect(result.tags).toEqual({ good: '1' })
@@ -94,5 +105,10 @@ describe('parseTimestamp', () => {
 
 	test('rejects garbage', () => {
 		expect(() => parseTimestamp('soon', 'ms')).toThrow('not a timestamp')
+	})
+
+	test('rejects short decimals and phrases that Date.parse would accept', () => {
+		expect(() => parseTimestamp('12.5', 's')).toThrow('not a timestamp')
+		expect(() => parseTimestamp('Monday 5', 'ms')).toThrow('not a timestamp')
 	})
 })

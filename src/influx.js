@@ -4,6 +4,9 @@ const { HealthAPI } = require('@influxdata/influxdb-client-apis')
 /** How long close() waits for the final flush before discarding the buffer */
 const CLOSE_TIMEOUT_MS = 5000
 
+/** Most org/bucket overrides kept open at once, so a bucket name from a changing variable can't grow without bound */
+const MAX_OVERRIDE_TARGETS = 20
+
 /**
  * Owns the InfluxDB client and its buffered WriteApi for one module instance.
  *
@@ -14,8 +17,8 @@ class InfluxConnection {
 	/**
 	 * @param {import('./config').ResolvedConfig} config
 	 * @param {object} callbacks
-	 * @param {(lines: string[]) => void} callbacks.onWriteSuccess
-	 * @param {(error: Error, lines: string[], attempt: number) => void} callbacks.onWriteFailed
+	 * @param {(lines: string[], target: WriteTarget) => void} callbacks.onWriteSuccess
+	 * @param {(error: Error, lines: string[], attempt: number, target: WriteTarget) => void} callbacks.onWriteFailed
 	 * @param {(message: string) => void} [callbacks.onClientLog] the client's own diagnostics (retries etc)
 	 * @param {(count: number) => void} [callbacks.onQueued] lines added to the buffer
 	 */
@@ -36,19 +39,8 @@ class InfluxConnection {
 
 		this.config = config
 		this.onQueued = onQueued
-		this.writeOptions = {
-			batchSize: config.batchSize,
-			flushInterval: config.flushInterval,
-			maxRetries: config.maxRetries,
-			gzipThreshold: config.gzip ? 1000 : undefined,
-			defaultTags: Object.keys(config.defaultTags).length ? config.defaultTags : undefined,
-			writeSuccess: (lines) => onWriteSuccess(lines),
-			// Returning undefined keeps the client's default retry behaviour
-			writeFailed: (error, lines, attempt) => {
-				onWriteFailed(error, lines, attempt)
-				return undefined
-			},
-		}
+		this.onWriteSuccess = onWriteSuccess
+		this.onWriteFailed = onWriteFailed
 
 		/** One buffered writer per org/bucket; actions can target a bucket other than the default */
 		this.writeApis = new Map()
@@ -56,6 +48,8 @@ class InfluxConnection {
 
 		this.health = new HealthAPI(this.influx)
 		this.closed = false
+		/** Aborted by close() so queries still running stop with the connection */
+		this.queryAbort = new AbortController()
 	}
 
 	/**
@@ -100,7 +94,24 @@ class InfluxConnection {
 		let writeApi = this.writeApis.get(key)
 		if (!writeApi) {
 			if (this.closed) throw new Error('Connection is closed')
-			writeApi = this.influx.getWriteApi(org, bucket, 'ns', this.writeOptions)
+			/** @type {WriteTarget} */
+			const info = { org, bucket, isOverride: this.writeApis.size > 0 }
+			if (info.isOverride && this.writeApis.size > MAX_OVERRIDE_TARGETS) {
+				throw new Error(`Too many different buckets/organizations in use (max ${MAX_OVERRIDE_TARGETS})`)
+			}
+			writeApi = this.influx.getWriteApi(org, bucket, 'ns', {
+				batchSize: this.config.batchSize,
+				flushInterval: this.config.flushInterval,
+				maxRetries: this.config.maxRetries,
+				gzipThreshold: this.config.gzip ? 1000 : undefined,
+				defaultTags: Object.keys(this.config.defaultTags).length ? this.config.defaultTags : undefined,
+				writeSuccess: (lines) => this.onWriteSuccess(lines, info),
+				// Returning undefined keeps the client's default retry behaviour
+				writeFailed: (error, lines, attempt) => {
+					this.onWriteFailed(error, lines, attempt, info)
+					return undefined
+				},
+			})
 			this.writeApis.set(key, writeApi)
 		}
 		return writeApi
@@ -141,8 +152,11 @@ class InfluxConnection {
 		let count = 0
 		let truncated = false
 
+		// Stop when either the caller aborts or the connection closes
+		signal = signal ? AbortSignal.any([signal, this.queryAbort.signal]) : this.queryAbort.signal
+
 		return new Promise((resolve, reject) => {
-			if (signal?.aborted) return reject(new Error('Query aborted'))
+			if (signal.aborted) return reject(new Error('Query aborted'))
 
 			let cancellable
 			const onAbort = () => {
@@ -150,9 +164,9 @@ class InfluxConnection {
 				reject(new Error('Query aborted'))
 				cancellable?.cancel()
 			}
-			signal?.addEventListener('abort', onAbort, { once: true })
+			signal.addEventListener('abort', onAbort, { once: true })
 			const done = (fn) => {
-				signal?.removeEventListener('abort', onAbort)
+				signal.removeEventListener('abort', onAbort)
 				fn()
 			}
 
@@ -186,6 +200,7 @@ class InfluxConnection {
 	async close() {
 		if (this.closed) return
 		this.closed = true
+		this.queryAbort.abort()
 
 		let timer
 		const timeout = new Promise((_, reject) => {
@@ -246,5 +261,12 @@ function parseErrorBody(body) {
 		return body
 	}
 }
+
+/**
+ * @typedef {object} WriteTarget
+ * @property {string} org
+ * @property {string} bucket
+ * @property {boolean} isOverride true for a bucket/org set on an action rather than in the connection config
+ */
 
 module.exports = { InfluxConnection, describeError }

@@ -20,6 +20,7 @@ export function fakeInflux() {
 		queries: [],
 		queryStatus: 200,
 		queryCsv: SAMPLE_CSV,
+		queryDelay: 0,
 		probes: 0,
 		requiredToken: null,
 		writeStatus: 204,
@@ -35,7 +36,15 @@ export function fakeInflux() {
 				res.end(JSON.stringify(state.health))
 			} else if (req.url.startsWith('/api/v2/query')) {
 				state.queries.push({ url: req.url, body: JSON.parse(body || '{}') })
-				if (state.queryStatus !== 200) {
+				if (state.queryDelay) {
+					// Hold the response open to simulate a slow query
+					setTimeout(() => {
+						if (!res.writableEnded && !res.destroyed) {
+							res.writeHead(200, { 'content-type': 'text/csv; charset=utf-8' })
+							res.end(state.queryCsv)
+						}
+					}, state.queryDelay)
+				} else if (state.queryStatus !== 200) {
 					res.writeHead(state.queryStatus, { 'content-type': 'application/json' })
 					res.end(JSON.stringify({ code: 'invalid', message: `query status ${state.queryStatus}` }))
 				} else {

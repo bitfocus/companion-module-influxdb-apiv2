@@ -111,6 +111,62 @@ describe('InfluxInstance lifecycle', () => {
 		await vi.waitFor(() => expect(t.lastStatus().status).toBe('ok'))
 	})
 
+	test('with health checks off, a successful write clears a failed first check', async () => {
+		fake.state.healthStatus = 503
+		fake.state.health = { status: 'fail', message: 'starting' }
+		await t.instance.init(config({ healthInterval: 0 }), true, {})
+		await vi.waitFor(() => expect(t.lastStatus().status).toBe('connection_failure'))
+
+		await t.runAction('writeFloatPoint', point)
+		await t.runAction('flushBuffer')
+		await vi.waitFor(() => expect(t.lastStatus().status).toBe('ok'))
+	})
+
+	test('an outage-related write failure clears when the health check recovers', async () => {
+		await t.instance.init(config({ healthInterval: 0 }), true, {})
+		await vi.waitFor(() => expect(t.lastStatus().status).toBe('ok'))
+
+		fake.state.writeStatus = 503
+		await t.runAction('writeFloatPoint', point)
+		await t.runAction('flushBuffer')
+		await vi.waitFor(() => expect(t.lastStatus().status).toBe('connection_failure'))
+
+		fake.state.writeStatus = 204
+		await t.instance.runHealthCheck(t.instance.generation)
+		expect(t.lastStatus().status).toBe('ok')
+	})
+
+	test('a failing bucket override is logged but does not change the connection status', async () => {
+		await t.instance.init(config(), true, {})
+		await vi.waitFor(() => expect(t.lastStatus().status).toBe('ok'))
+
+		fake.state.writeStatus = 404
+		await t.runAction('writePoint', {
+			measurement: 'm',
+			tags: '',
+			fields: 'v=1',
+			precision: 'ms',
+			bucket: 'typo',
+			org: '',
+		})
+		await t.runAction('flushBuffer')
+		await vi.waitFor(() => expect(t.logs.some((l) => l.message.includes('bucket "typo"'))).toBe(true))
+		expect(t.lastStatus().status).toBe('ok')
+	})
+
+	test('overlapping config saves run one after the other and leave one connection', async () => {
+		await t.instance.init(config(), true, {})
+		const first = t.instance.configUpdated(config({ bucket: 'second' }), {})
+		const second = t.instance.configUpdated(config({ bucket: 'third' }), {})
+		await Promise.all([first, second])
+		expect(t.instance.connection.config.bucket).toBe('third')
+		expect(t.instance.healthTimer).not.toBeNull()
+
+		await t.instance.destroy()
+		expect(t.instance.connection).toBeNull()
+		expect(t.instance.healthTimer).toBeNull()
+	})
+
 	test('changing the config flushes the old buffer to the old server', async () => {
 		await t.instance.init(config(), true, {})
 		await t.runAction('writeFloatPoint', point)
@@ -264,6 +320,14 @@ describe('Run Flux Query', () => {
 		fake.state.queryStatus = 400
 		await expect(query({ result: 'value' })).rejects.toThrow('InfluxDB rejected the request: query status 400')
 		await expect(t.runAction('runQuery', { query: '  ', result: 'value' })).rejects.toThrow('empty')
+	})
+
+	test('stopping the connection cancels a running query', async () => {
+		fake.state.queryDelay = 2000
+		const pending = query({ result: 'count' })
+		await vi.waitFor(() => expect(fake.state.queries).toHaveLength(1))
+		await t.instance.configUpdated({ url: fake.url, org: 'myorg', bucket: 'b' }, { token: 'tok' })
+		await expect(pending).rejects.toThrow('aborted')
 	})
 
 	test('an aborted query rejects', async () => {

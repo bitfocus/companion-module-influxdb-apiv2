@@ -43,6 +43,26 @@ function toBoolean(value) {
 	return undefined
 }
 
+const INT64_MIN = -(2n ** 63n)
+const INT64_MAX = 2n ** 63n - 1n
+
+/**
+ * Like Point.intField, but keeps full 64-bit precision: the client parses the value as a JS number,
+ * which rounds anything beyond 2^53.
+ * @param {Point} point
+ * @param {string} key
+ * @param {string} digits
+ */
+function setIntField(point, key, digits) {
+	const value = BigInt(digits)
+	if (value < INT64_MIN || value > INT64_MAX) throw new Error(`Field "${key}" is outside the 64-bit integer range`)
+	if (Number.isSafeInteger(Number(value))) {
+		point.intField(key, Number(value))
+	} else {
+		point.fields[key] = `${value}i`
+	}
+}
+
 module.exports = function (self) {
 	/**
 	 * Build a point from the shared measurement/tags/field options.
@@ -251,7 +271,7 @@ module.exports = function (self) {
 							point.floatField(field.key, field.value)
 							break
 						case 'int':
-							point.intField(field.key, field.value)
+							setIntField(point, field.key, field.value)
 							break
 						case 'uint':
 							point.uintField(field.key, field.value)
@@ -310,6 +330,7 @@ module.exports = function (self) {
 					min: 1,
 					max: 10000,
 					asInteger: true,
+					clampValues: true,
 					isVisibleExpression: `$(options:result) == 'rows'`,
 				},
 				{

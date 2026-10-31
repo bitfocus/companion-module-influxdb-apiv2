@@ -30,6 +30,15 @@ class InfluxInstance extends InstanceBase {
 		/** The status last reported to Companion, read by the feedbacks */
 		this.currentStatus = { status: InstanceStatus.Connecting, message: '' }
 		this.stats = newStats()
+
+		/** init/configUpdated/destroy run one at a time, so a second config save can't overlap a slow stop() */
+		this.lifecycle = Promise.resolve()
+	}
+
+	/** Queue a lifecycle step behind any that is still running */
+	runLifecycle(step) {
+		this.lifecycle = this.lifecycle.then(step).catch((e) => this.log('error', `Lifecycle error: ${e.message}`))
+		return this.lifecycle
 	}
 
 	async init(config, _isFirstInit, secrets) {
@@ -38,16 +47,18 @@ class InfluxInstance extends InstanceBase {
 		this.updateVariableDefinitions()
 		this.updatePresets()
 
-		this.start(config, secrets)
+		await this.runLifecycle(() => this.start(config, secrets))
 	}
 
 	async destroy() {
-		await this.stop()
+		await this.runLifecycle(() => this.stop())
 	}
 
 	async configUpdated(config, secrets) {
-		await this.stop()
-		this.start(config, secrets)
+		await this.runLifecycle(async () => {
+			await this.stop()
+			this.start(config, secrets)
+		})
 	}
 
 	getConfigFields() {
@@ -80,25 +91,37 @@ class InfluxInstance extends InstanceBase {
 					this.stats.queued += count
 					this.publishStats()
 				},
-				onWriteSuccess: (lines) => {
+				onWriteSuccess: (lines, target) => {
 					if (generation !== this.generation) return
-					this.log('debug', `Wrote ${lines.length} line(s) to InfluxDB`)
+					this.log('debug', `Wrote ${lines.length} line(s) to ${target.bucket}`)
 					this.stats.written += lines.length
 					this.stats.lastWriteTime = new Date().toLocaleTimeString('en-GB')
 					this.publishStats()
-					if (this.writeError) {
-						this.log('info', 'Writes to InfluxDB are succeeding again')
-						this.writeError = null
-						this.refreshStatus()
-					}
+					// The status describes the configured bucket; writes to an action's own bucket don't change it
+					if (target.isOverride) return
+
+					if (this.writeError) this.log('info', 'Writes to InfluxDB are succeeding again')
+					// A successful write also proves the server is reachable, which matters when health checks are off
+					this.writeError = null
+					this.healthError = null
+					this.healthy = true
+					this.refreshStatus()
 				},
-				onWriteFailed: (error, lines, attempt) => {
+				onWriteFailed: (error, lines, attempt, target) => {
 					if (generation !== this.generation) return
 					const described = describeError(error)
-					this.log('error', `Write of ${lines.length} line(s) failed (attempt ${attempt}): ${described.message}`)
+					const where = target.isOverride ? ` to bucket "${target.bucket}"` : ''
+					this.log(
+						'error',
+						`Write of ${lines.length} line(s)${where} failed (attempt ${attempt}): ${described.message}`,
+					)
 					this.stats.failed += 1
-					this.stats.lastError = described.message
+					this.stats.lastError = target.isOverride
+						? `Bucket "${target.bucket}": ${described.message}`
+						: described.message
 					this.publishStats()
+					if (target.isOverride) return
+
 					this.writeError = described
 					this.refreshStatus()
 				},
@@ -151,6 +174,8 @@ class InfluxInstance extends InstanceBase {
 			this.healthy = true
 			this.healthError = null
 			this.serverVersion = version
+			// The server is back and accepts writes, so an outage-related write failure is over
+			if (this.writeError?.status === InstanceStatus.ConnectionFailure) this.writeError = null
 			this.setVariableValues({ server_version: version ?? '' })
 		} catch (e) {
 			if (generation !== this.generation) return
