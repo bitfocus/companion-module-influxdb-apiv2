@@ -73,7 +73,7 @@ function checkName(label, name) {
 const rawTagsOption = {
 	...tagsOption,
 	tooltip:
-		'Raw line protocol tag set, sent exactly as typed: comma separated key=value pairs. Escape commas, equals signs and spaces with a backslash yourself. Leave empty for no tags.',
+		'Raw line protocol tag set, sent as typed (only spaces around each tag are removed): comma separated key=value pairs. Escape commas, equals signs and spaces with a backslash yourself. Leave empty for no tags.',
 }
 
 module.exports = function (self) {

@@ -191,7 +191,7 @@ describe('InfluxInstance lifecycle', () => {
 	test('the raw Write action explains that its tags are sent as typed', async () => {
 		await t.instance.init(config(), true, {})
 		const tags = t.definitions().actions.writeInflux.options.find((o) => o.id === 'tags')
-		expect(tags.tooltip).toMatch(/exactly as typed/)
+		expect(tags.tooltip).toMatch(/sent as typed/)
 		const pointTags = t.definitions().actions.writeFloatPoint.options.find((o) => o.id === 'tags')
 		expect(pointTags.tooltip).toMatch(/Escapes/)
 	})

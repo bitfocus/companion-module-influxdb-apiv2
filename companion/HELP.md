@@ -17,6 +17,8 @@ Advanced settings:
 - **Request timeout**, **Compress writes (gzip)**, **Ignore TLS certificate errors** (only for self-signed certificates on a trusted network).
 - **Health check interval**: how often the connection checks that InfluxDB is reachable and that the token can write to the organization and bucket (without writing any data). The check also runs when the connection starts. Set it to 0 to disable the periodic check.
 
+When the connection is disabled or its settings are saved, points still in the buffer (including writes waiting to be retried) are sent first, for up to 5 seconds. Anything that can't be sent is reported in the log as a warning such as `Dropped 3 line(s) for bucket "metrics"`.
+
 The connection status shows the reason for problems with the configured bucket: an unreachable server, a rejected token, a missing organization or bucket, or data rejected by InfluxDB. It goes back to OK as soon as writes succeed again. Failures when an action writes to its own **Bucket** or **Organization** don't change the status; they appear in the log and in the `last_error` and `write_errors` variables.
 
 ### Actions
@@ -44,7 +46,7 @@ Every text option accepts variables, and most options can be switched to an expr
 
   **Organization** can override the connection's organization for this query. An empty result returns nothing (null), or 0 rows. The token needs read access to the bucket. Errors such as a Flux syntax error or a missing bucket appear in the connection log. Variables in the query are replaced before it runs, so a query can depend on other buttons.
 
-**Tags** (in the point actions; the raw **Write** action sends its tags exactly as typed) are comma separated `key=value` pairs, for example `room=studio,source=companion`. Leave the field empty for no tags. Values may contain `=` and spaces. These backslash escapes are understood:
+**Tags** (in the point actions; the raw **Write** action sends its tags as typed, apart from removing spaces around each tag) are comma separated `key=value` pairs, for example `room=studio,source=companion`. Leave the field empty for no tags. Values may contain `=` and spaces. These backslash escapes are understood:
 
 - `\,` a comma (otherwise a comma starts the next tag)
 - `\=` an equals sign in a tag key

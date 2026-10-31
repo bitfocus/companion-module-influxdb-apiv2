@@ -109,8 +109,9 @@ function parseTags(input) {
  */
 function buildLine(measurement, tags, fields, timestamp) {
 	measurement = String(measurement ?? '').trim()
-	tags = splitUnescaped(String(tags ?? '').trim(), ',')
-		.map((t) => t.trim())
+	// Keep an escaped trailing space: trimming it would leave a backslash that escapes the next separator
+	tags = splitUnescaped(String(tags ?? ''), ',')
+		.map((t) => trimUnescaped(t))
 		.filter((t) => t !== '')
 		.join(',')
 	fields = String(fields ?? '').trim()

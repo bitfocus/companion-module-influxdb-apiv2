@@ -74,6 +74,10 @@ describe('buildLine', () => {
 		expect(buildLine('m', 'a=1, b=2', 'v=1,s="x"', '123')).toBe('m,a=1,b=2 v=1,s="x" 123')
 	})
 
+	test('keeps an escaped trailing space in a raw tag instead of merging it with the next tag', () => {
+		expect(buildLine('m', 'room=studio\\ ,src=desk', 'v=1')).toBe('m,room=studio\\ ,src=desk v=1')
+	})
+
 	test('requires a measurement and fields', () => {
 		expect(() => buildLine('', '', 'v=1')).toThrow('Measurement')
 		expect(() => buildLine('m', '', ' ')).toThrow('field')
