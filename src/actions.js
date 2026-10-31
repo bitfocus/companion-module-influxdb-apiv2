@@ -1,5 +1,6 @@
 const { Point, currentTime } = require('@influxdata/influxdb-client')
 const { parseTags, parseFields, parseTimestamp, buildLine } = require('./lineprotocol')
+const { describeError } = require('./influx')
 
 const measurementOption = (defaultValue = 'example') => ({
 	id: 'measurement',
@@ -273,6 +274,86 @@ module.exports = function (self) {
 				})
 				return point.toString()
 			}),
+		},
+		runQuery: {
+			name: 'Run Flux Query',
+			description:
+				'Run a Flux query (InfluxDB 2.x) and return the result, which Companion can store in a variable for later actions. Needs a token with read access.',
+			options: [
+				{
+					id: 'query',
+					type: 'textinput',
+					label: 'Flux query',
+					default:
+						'from(bucket: "my-bucket")\n  |> range(start: -1h)\n  |> filter(fn: (r) => r._measurement == "example")\n  |> last()',
+					multiline: true,
+					useVariables: true,
+				},
+				{
+					id: 'result',
+					type: 'dropdown',
+					label: 'Return',
+					default: 'value',
+					choices: [
+						{ id: 'value', label: 'The _value of the first row' },
+						{ id: 'row', label: 'The first row (object)' },
+						{ id: 'rows', label: 'All rows (list of objects)' },
+						{ id: 'count', label: 'The number of rows' },
+					],
+					disableAutoExpression: true,
+				},
+				{
+					id: 'maxRows',
+					type: 'number',
+					label: 'Maximum rows',
+					default: 100,
+					min: 1,
+					max: 10000,
+					asInteger: true,
+					isVisibleExpression: `$(options:result) == 'rows'`,
+				},
+				{
+					id: 'org',
+					type: 'textinput',
+					label: 'Organization (optional)',
+					default: '',
+					tooltip: "Use this organization instead of the connection's organization",
+					useVariables: true,
+				},
+			],
+			hasResult: true,
+			callback: async (event, context) => {
+				const { options } = event
+				const flux = String(options.query ?? '').trim()
+				if (!flux) throw new Error('Run Flux Query: the query is empty')
+
+				const mode = options.result || 'value'
+				const maxRows = Math.max(1, Math.round(Number(options.maxRows) || 100))
+				try {
+					const { rows, count, truncated } = await self.requireConnection().query(flux, {
+						org: String(options.org ?? '').trim(),
+						limit: mode === 'rows' ? maxRows : 1,
+						countOnly: mode === 'count',
+						signal: context?.signal,
+					})
+					if (truncated && mode === 'rows') self.log('warn', `Run Flux Query: result cut to the first ${maxRows} rows`)
+
+					switch (mode) {
+						case 'count':
+							return count
+						case 'rows':
+							return rows
+						case 'row':
+							return rows[0] ?? null
+						default:
+							return rows[0]?._value ?? null
+					}
+				} catch (error) {
+					const message = describeError(error).message
+					self.log('warn', `Run Flux Query: ${message}`)
+					throw new Error(message, { cause: error })
+				}
+			},
 		},
 		flushBuffer: {
 			name: 'Flush Buffer',

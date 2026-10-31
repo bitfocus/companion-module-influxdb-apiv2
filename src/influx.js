@@ -124,6 +124,59 @@ class InfluxConnection {
 		this.onQueued?.(lines.length)
 	}
 
+	/**
+	 * Run a Flux query and collect the result rows as plain objects.
+	 * Stops reading once `limit` rows have arrived, unless only counting.
+	 * @param {string} flux
+	 * @param {object} [options]
+	 * @param {string} [options.org] defaults to the connection's organization
+	 * @param {number} [options.limit] maximum rows to keep
+	 * @param {boolean} [options.countOnly] count every row without keeping them
+	 * @param {AbortSignal} [options.signal] cancels the query
+	 * @returns {Promise<{ rows: Record<string, unknown>[], count: number, truncated: boolean }>}
+	 */
+	query(flux, { org, limit = Infinity, countOnly = false, signal } = {}) {
+		const queryApi = this.influx.getQueryApi(org || this.config.org)
+		const rows = []
+		let count = 0
+		let truncated = false
+
+		return new Promise((resolve, reject) => {
+			if (signal?.aborted) return reject(new Error('Query aborted'))
+
+			let cancellable
+			const onAbort = () => {
+				// Reject before cancelling: cancel() can report completion synchronously
+				reject(new Error('Query aborted'))
+				cancellable?.cancel()
+			}
+			signal?.addEventListener('abort', onAbort, { once: true })
+			const done = (fn) => {
+				signal?.removeEventListener('abort', onAbort)
+				fn()
+			}
+
+			queryApi.queryRows(flux, {
+				useCancellable: (c) => (cancellable = c),
+				next: (row, tableMeta) => {
+					count++
+					if (countOnly) return
+					if (rows.length < limit) {
+						const { result: _result, table: _table, ...values } = tableMeta.toObject(row)
+						rows.push(values)
+					} else {
+						// Have what we need: stop the server sending the rest (resolve first, as cancel() completes synchronously)
+						truncated = true
+						done(() => resolve({ rows, count: rows.length, truncated }))
+						cancellable?.cancel()
+					}
+				},
+				error: (error) => done(() => reject(error)),
+				complete: () => done(() => resolve({ rows, count, truncated })),
+			})
+		})
+	}
+
 	/** Send everything that is buffered now */
 	async flush() {
 		await Promise.all([...this.writeApis.values()].map((w) => w.flush()))
@@ -163,14 +216,17 @@ function describeError(error) {
 			case 401:
 				return { status: 'authentication_failure', message: `Unauthorized, check the token (${detail})` }
 			case 403:
-				return { status: 'insufficient_permissions', message: `Token cannot write to this bucket (${detail})` }
+				return {
+					status: 'insufficient_permissions',
+					message: `Token does not have permission for this bucket (${detail})`,
+				}
 			case 404:
 				return { status: 'bad_config', message: `Organization or bucket not found (${detail})` }
 			case 400:
 				if (/\borg/i.test(detail)) {
 					return { status: 'bad_config', message: `Organization is missing or invalid (${detail})` }
 				}
-				return { status: 'unknown_warning', message: `InfluxDB rejected the data: ${detail}` }
+				return { status: 'unknown_warning', message: `InfluxDB rejected the request: ${detail}` }
 			case 422:
 				return { status: 'unknown_warning', message: `InfluxDB rejected the data: ${detail}` }
 			default:

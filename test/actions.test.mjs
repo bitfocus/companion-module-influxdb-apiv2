@@ -34,7 +34,15 @@ describe('actions', () => {
 
 	test('keeps the v1 action ids', () => {
 		expect(Object.keys(t.definitions).sort()).toEqual(
-			['flushBuffer', 'writeBooleanPoint', 'writeFloatPoint', 'writeInflux', 'writePoint', 'writeStringPoint'].sort(),
+			[
+				'flushBuffer',
+				'runQuery',
+				'writeBooleanPoint',
+				'writeFloatPoint',
+				'writeInflux',
+				'writePoint',
+				'writeStringPoint',
+			].sort(),
 		)
 	})
 

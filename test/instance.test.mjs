@@ -23,7 +23,7 @@ function createInstance() {
 	const instance = new InfluxInstance(context)
 	const logs = []
 	instance.log = (level, message) => logs.push({ level, message })
-	const runAction = (id, options = {}) => actions[id].callback({ options }, {})
+	const runAction = (id, options = {}, ctx = {}) => actions[id].callback({ options }, ctx)
 	const lastStatus = () => statuses.at(-1)
 	const feedback = (id) => feedbacks[id].callback({ options: {} }, {})
 	return {
@@ -201,5 +201,75 @@ describe('variables, feedbacks and presets', () => {
 				}
 			}
 		}
+	})
+})
+
+describe('Run Flux Query', () => {
+	let fake, t
+
+	beforeEach(async () => {
+		fake = await fakeInflux()
+		t = createInstance()
+		await t.instance.init({ url: fake.url, org: 'myorg', bucket: 'b' }, true, { token: 'tok' })
+	})
+
+	afterEach(async () => {
+		await t.instance.destroy()
+		await new Promise((r) => fake.server.close(r))
+	})
+
+	const query = (options, ctx) =>
+		t.runAction('runQuery', { query: 'from(bucket: "b") |> range(start: -1h)', org: '', maxRows: 100, ...options }, ctx)
+
+	test('returns the first _value by default and sends the query to the right org', async () => {
+		await expect(query({ result: 'value' })).resolves.toBe(21.5)
+		expect(fake.state.queries[0].url).toContain('org=myorg')
+		expect(fake.state.queries[0].body.query).toContain('from(bucket: "b")')
+	})
+
+	test('org override', async () => {
+		await query({ result: 'value', org: 'other' })
+		expect(fake.state.queries[0].url).toContain('org=other')
+	})
+
+	test('first row, all rows and count', async () => {
+		await expect(query({ result: 'row' })).resolves.toEqual({
+			_start: '2026-10-31T00:00:00Z',
+			_stop: '2026-10-31T01:00:00Z',
+			_time: '2026-10-31T00:10:00Z',
+			_value: 21.5,
+			_field: 'temp',
+			_measurement: 'm',
+			room: 'a',
+		})
+		await expect(query({ result: 'rows' })).resolves.toHaveLength(3)
+		await expect(query({ result: 'count' })).resolves.toBe(3)
+	})
+
+	test('all rows are capped at the maximum', async () => {
+		const rows = await query({ result: 'rows', maxRows: 2 })
+		expect(rows.map((r) => r._value)).toEqual([21.5, 22.5])
+		expect(t.logs.some((l) => l.message.includes('first 2 rows'))).toBe(true)
+	})
+
+	test('an empty result is null (or 0 rows)', async () => {
+		fake.state.queryCsv = '\r\n'
+		await expect(query({ result: 'value' })).resolves.toBeNull()
+		await expect(query({ result: 'row' })).resolves.toBeNull()
+		await expect(query({ result: 'rows' })).resolves.toEqual([])
+		await expect(query({ result: 'count' })).resolves.toBe(0)
+	})
+
+	test('errors are thrown with a readable message', async () => {
+		fake.state.queryStatus = 400
+		await expect(query({ result: 'value' })).rejects.toThrow('InfluxDB rejected the request: query status 400')
+		await expect(t.runAction('runQuery', { query: '  ', result: 'value' })).rejects.toThrow('empty')
+	})
+
+	test('an aborted query rejects', async () => {
+		const controller = new AbortController()
+		const pending = query({ result: 'count' }, { signal: controller.signal })
+		controller.abort()
+		await expect(pending).rejects.toThrow('aborted')
 	})
 })
