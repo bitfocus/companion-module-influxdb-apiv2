@@ -1,8 +1,10 @@
 {
+	"$schema": "../node_modules/@companion-module/base/assets/manifest.schema.json",
+	"type": "connection",
 	"id": "influxdb-apiv2",
-	"name": "influxdb-apiv2",
+	"name": "InfluxDB v2",
 	"shortname": "influxdb",
-	"description": "Sends data to InfluxDB",
+	"description": "Write data points to and run Flux queries on InfluxDB 2.x",
 	"version": "0.0.0",
 	"license": "MIT",
 	"repository": "git+https://github.com/bitfocus/companion-module-influxdb-apiv2.git",
@@ -14,13 +16,13 @@
 		}
 	],
 	"runtime": {
-		"type": "node18",
+		"type": "node26",
 		"api": "nodejs-ipc",
 		"apiVersion": "0.0.0",
-		"entrypoint": "../main.js"
+		"entrypoint": "../src/index.mjs"
 	},
 	"legacyIds": [],
 	"manufacturer": "InfluxDB",
 	"products": ["InfluxDB v2"],
-	"keywords": ["Logging", "InfluxDB", "Time Series", "Database"]
+	"keywords": ["Logging", "Time Series", "Database", "Metrics", "Flux"]
 }
