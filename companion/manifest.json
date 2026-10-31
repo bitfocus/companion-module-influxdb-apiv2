@@ -22,7 +22,7 @@
 		"entrypoint": "../src/index.mjs"
 	},
 	"legacyIds": [],
-	"manufacturer": "InfluxData",
-	"products": ["InfluxDB v2", "InfluxDB 3"],
+	"manufacturer": "InfluxDB",
+	"products": ["InfluxDB v2"],
 	"keywords": ["Logging", "InfluxDB", "Time Series", "Database"]
 }
