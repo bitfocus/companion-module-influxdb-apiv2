@@ -2,6 +2,8 @@ const { InstanceBase, InstanceStatus } = require('@companion-module/base')
 const UpdateActions = require('./actions')
 const UpdateFeedbacks = require('./feedbacks')
 const UpdateVariableDefinitions = require('./variables')
+const UpdatePresets = require('./presets')
+const { STATUS_LABELS } = require('./variables')
 const { GetConfigFields, resolveConfig } = require('./config')
 const { InfluxConnection, describeError } = require('./influx')
 
@@ -24,12 +26,17 @@ class InfluxInstance extends InstanceBase {
 		this.writeError = null
 		this.healthy = false
 		this.serverVersion = undefined
+
+		/** The status last reported to Companion, read by the feedbacks */
+		this.currentStatus = { status: InstanceStatus.Connecting, message: '' }
+		this.stats = newStats()
 	}
 
 	async init(config, _isFirstInit, secrets) {
 		this.updateActions()
 		this.updateFeedbacks()
 		this.updateVariableDefinitions()
+		this.updatePresets()
 
 		this.start(config, secrets)
 	}
@@ -57,6 +64,8 @@ class InfluxInstance extends InstanceBase {
 		this.writeError = null
 		this.healthy = false
 		this.serverVersion = undefined
+		this.stats = newStats()
+		this.publishStats()
 
 		if (errors.length) {
 			for (const error of errors) this.log('error', `Config: ${error}`)
@@ -66,9 +75,17 @@ class InfluxInstance extends InstanceBase {
 
 		try {
 			this.connection = new InfluxConnection(settings, {
+				onQueued: (count) => {
+					if (generation !== this.generation) return
+					this.stats.queued += count
+					this.publishStats()
+				},
 				onWriteSuccess: (lines) => {
 					if (generation !== this.generation) return
 					this.log('debug', `Wrote ${lines.length} line(s) to InfluxDB`)
+					this.stats.written += lines.length
+					this.stats.lastWriteTime = new Date().toLocaleTimeString('en-GB')
+					this.publishStats()
 					if (this.writeError) {
 						this.log('info', 'Writes to InfluxDB are succeeding again')
 						this.writeError = null
@@ -79,6 +96,9 @@ class InfluxInstance extends InstanceBase {
 					if (generation !== this.generation) return
 					const described = describeError(error)
 					this.log('error', `Write of ${lines.length} line(s) failed (attempt ${attempt}): ${described.message}`)
+					this.stats.failed += 1
+					this.stats.lastError = described.message
+					this.publishStats()
 					this.writeError = described
 					this.refreshStatus()
 				},
@@ -131,6 +151,7 @@ class InfluxInstance extends InstanceBase {
 			this.healthy = true
 			this.healthError = null
 			this.serverVersion = version
+			this.setVariableValues({ server_version: version ?? '' })
 		} catch (e) {
 			if (generation !== this.generation) return
 
@@ -147,16 +168,40 @@ class InfluxInstance extends InstanceBase {
 	/** Derive the connection status from config, health and write state */
 	refreshStatus() {
 		if (this.configErrors.length) {
-			this.updateStatus(InstanceStatus.BadConfig, this.configErrors.join('; '))
+			this.setStatus(InstanceStatus.BadConfig, this.configErrors.join('; '))
 		} else if (this.writeError) {
-			this.updateStatus(this.writeError.status, this.writeError.message)
+			this.setStatus(this.writeError.status, this.writeError.message)
 		} else if (this.healthError) {
-			this.updateStatus(this.healthError.status, this.healthError.message)
+			this.setStatus(this.healthError.status, this.healthError.message)
 		} else if (this.healthy) {
-			this.updateStatus(InstanceStatus.Ok)
+			this.setStatus(InstanceStatus.Ok, '')
 		} else {
-			this.updateStatus(InstanceStatus.Connecting)
+			this.setStatus(InstanceStatus.Connecting, '')
 		}
+	}
+
+	/** Report a status to Companion and mirror it in the variables and feedbacks */
+	setStatus(status, message) {
+		const changed = status !== this.currentStatus.status || message !== this.currentStatus.message
+		this.currentStatus = { status, message }
+		this.updateStatus(status, message || null)
+		if (!changed) return
+
+		this.setVariableValues({
+			connection_status: STATUS_LABELS[status] ?? status,
+			connection_message: message,
+		})
+		this.checkFeedbacks('connectionOk', 'writesFailing')
+	}
+
+	publishStats() {
+		this.setVariableValues({
+			points_queued: this.stats.queued,
+			points_written: this.stats.written,
+			write_errors: this.stats.failed,
+			last_error: this.stats.lastError,
+			last_write_time: this.stats.lastWriteTime,
+		})
 	}
 
 	/**
@@ -183,6 +228,14 @@ class InfluxInstance extends InstanceBase {
 	updateVariableDefinitions() {
 		UpdateVariableDefinitions(this)
 	}
+
+	updatePresets() {
+		UpdatePresets(this)
+	}
+}
+
+function newStats() {
+	return { queued: 0, written: 0, failed: 0, lastError: '', lastWriteTime: '' }
 }
 
 module.exports = InfluxInstance
