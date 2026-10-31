@@ -11,7 +11,8 @@ _Audited 2026-10-30 at `e5a07d9` (tag v1.0.2)._
 - **Tests:** written against the fixed behaviour rather than as characterization tests, since those would have locked the bugs in. A fake InfluxDB HTTP server covers writes, auth errors, close/flush and the instance lifecycle.
 - **Live test (2026-10-31):** InfluxDB OSS v2.8.0. Points from every action landed with the correct values, types and tags, and bad token, bucket and org, type conflicts and an unreachable server each produce the intended status.
 - **Phase C is done** on branch `feat/phase-c`. Write Point, variables, feedbacks and presets were verified in Companion 5.1.1 against InfluxDB 2.8.
-- **Not done yet:** Phases D–E.
+- **Phase D is done** on branch `feat/flux-query`. You chose Flux only (InfluxDB 2.x), delivered as a Run Flux Query action that returns an action result; there are no polled queries. Verified in Companion 5.1.1: the result is stored in a local variable and shown on a button.
+- **Not done yet:** Phase E (release).
 
 ## 1. What exists today
 

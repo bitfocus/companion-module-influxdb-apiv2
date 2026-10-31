@@ -1,6 +1,6 @@
 ## InfluxDB
 
-Writes data points to InfluxDB 2.x. InfluxDB 3 (Core, Enterprise and Cloud) also works through its v2-compatible write API.
+Writes data points to InfluxDB 2.x and runs Flux queries. InfluxDB 3 (Core, Enterprise and Cloud) also works through its v2-compatible write API.
 
 ### Configuration
 
@@ -34,6 +34,13 @@ Every text option accepts variables, and any option can be switched to an expres
 - **Write Float Point**, **Write String Point**, **Write Boolean Point**: write one point with a single field. The measurement, tags and field name are escaped for you.
 - **Write**: write one raw line of line protocol from a measurement, tags and fields. String field values must be in double quotes, and you are responsible for escaping. The timestamp is added automatically.
 - **Flush Buffer**: send everything that is buffered now.
+- **Run Flux Query**: run a Flux query (InfluxDB 2.x) and return the result. In the action's **Store Action Result** setting, choose a local, page or custom variable to keep it in, then use that variable on the button or in later actions. **Return** picks what comes back:
+  - the `_value` of the first row (the default; pair it with `|> last()` to show the latest reading)
+  - the first row, as an object
+  - all rows, as a list (up to **Maximum rows**)
+  - the number of rows
+
+  An empty result returns nothing (null), or 0 rows. The token needs read access to the bucket. Errors such as a Flux syntax error or a missing bucket appear in the connection log. Variables in the query are replaced before it runs, so a query can depend on other buttons.
 
 **Tags** are comma separated `key=value` pairs, for example `room=studio,source=companion`. Leave the field empty for no tags. Values may contain `=`. Write `\,` for a literal comma.
 

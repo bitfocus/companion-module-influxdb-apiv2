@@ -31,6 +31,7 @@ yarn package
 - Variables for connection status, server version, points queued and written, write errors and last write time
 - Feedbacks: Connection OK and Writes failing
 - Presets: status, counters, flush and a button that logs its own presses
+- New Run Flux Query action: returns the first value, first row, all rows or a row count, stored in a variable via Companion's action results
 
 ## 1.0.0
 
