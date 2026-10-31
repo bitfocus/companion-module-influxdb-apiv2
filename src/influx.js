@@ -1,4 +1,4 @@
-const { InfluxDB, HttpError } = require('@influxdata/influxdb-client')
+const { InfluxDB, setLogger } = require('@influxdata/influxdb-client')
 const { HealthAPI } = require('@influxdata/influxdb-client-apis')
 
 /** How long close() waits for the final flush before discarding the buffer */
@@ -16,8 +16,16 @@ class InfluxConnection {
 	 * @param {object} callbacks
 	 * @param {(lines: string[]) => void} callbacks.onWriteSuccess
 	 * @param {(error: Error, lines: string[], attempt: number) => void} callbacks.onWriteFailed
+	 * @param {(message: string) => void} [callbacks.onClientLog] the client's own diagnostics (retries etc)
 	 */
-	constructor(config, { onWriteSuccess, onWriteFailed }) {
+	constructor(config, { onWriteSuccess, onWriteFailed, onClientLog }) {
+		// By default the client prints every failure with a full stack trace to the console.
+		// Failures already reach onWriteFailed, so route its own messages somewhere quieter.
+		setLogger({
+			error: (message) => onClientLog?.(message),
+			warn: (message) => onClientLog?.(message),
+		})
+
 		this.influx = new InfluxDB({
 			url: config.url,
 			token: config.token || undefined,
@@ -98,7 +106,8 @@ class InfluxConnection {
  * @returns {{ status: 'authentication_failure' | 'insufficient_permissions' | 'bad_config' | 'connection_failure' | 'unknown_warning', message: string }}
  */
 function describeError(error) {
-	if (error instanceof HttpError) {
+	// Checked by shape: the client ships separate CJS and ESM builds, so instanceof HttpError is unreliable
+	if (typeof error?.statusCode === 'number') {
 		const detail = parseErrorBody(error.body) || error.statusMessage || error.message
 		switch (error.statusCode) {
 			case 401:
@@ -108,6 +117,10 @@ function describeError(error) {
 			case 404:
 				return { status: 'bad_config', message: `Organization or bucket not found (${detail})` }
 			case 400:
+				if (/\borg/i.test(detail)) {
+					return { status: 'bad_config', message: `Organization is missing or invalid (${detail})` }
+				}
+				return { status: 'unknown_warning', message: `InfluxDB rejected the data: ${detail}` }
 			case 422:
 				return { status: 'unknown_warning', message: `InfluxDB rejected the data: ${detail}` }
 			default:

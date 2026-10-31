@@ -7,9 +7,10 @@ _Audited 2026-10-30 at `e5a07d9` (tag v1.0.2)._
 - **Phases A and B are done** on branch `feat/v2-modernize`.
 - **Target:** base `~2.1.3` (Companion 5.0+), `node22` runtime, plain CommonJS JS.
 - **ESM entry file:** `src/index.mjs` re-exports `default` and `UpgradeScripts`. The CommonJS-only entry from the docs loses the named `UpgradeScripts` export once the build tool bundles it (Companion reads `moduleImport.UpgradeScripts` from the ESM namespace).
-- **Kept as before:** action option shapes. The Boolean value stays a dropdown, now with `allowInvalidValues`, so no option upgrade script is needed. The only upgrade script moves the token into secrets.
+- **Kept as before:** action option shapes. The Boolean value stays a dropdown, now with `allowInvalidValues`, so no option upgrade script is needed. The module was never published, so there are no saved configs to migrate and `UpgradeScripts` stays empty.
 - **Tests:** written against the fixed behaviour rather than as characterization tests, since those would have locked the bugs in. A fake InfluxDB HTTP server covers writes, auth errors, close/flush and the instance lifecycle.
-- **Not done yet:** a live test against a real InfluxDB, and Phases C–E.
+- **Live test (2026-10-31):** InfluxDB OSS v2.8.0. Points from every action landed with the correct values, types and tags, and bad token, bucket and org, type conflicts and an unreachable server each produce the intended status.
+- **Not done yet:** Phases C–E.
 
 ## 1. What exists today
 

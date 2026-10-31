@@ -82,6 +82,7 @@ class InfluxInstance extends InstanceBase {
 					this.writeError = described
 					this.refreshStatus()
 				},
+				onClientLog: (message) => this.log('debug', `InfluxDB client: ${message}`),
 			})
 		} catch (e) {
 			this.configErrors = [e.message]

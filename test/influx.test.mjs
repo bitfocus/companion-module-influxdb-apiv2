@@ -86,3 +86,11 @@ describe('InfluxConnection', () => {
 		expect(describeError(events.failed[0].error).status).toBe('bad_config')
 	})
 })
+
+describe('describeError', () => {
+	test('a missing org is a config problem', async () => {
+		const { HttpError } = await import('@influxdata/influxdb-client')
+		const error = new HttpError(400, 'Bad Request', '{"code":"invalid","message":"Please provide either orgID or org"}')
+		expect(describeError(error).status).toBe('bad_config')
+	})
+})

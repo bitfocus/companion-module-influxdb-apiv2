@@ -17,7 +17,7 @@ yarn package
 ## Unreleased (2.0.0)
 
 - Requires Companion 5.0 or later (module API 2.1)
-- The API token is now stored as a secret (moved automatically from older configs)
+- The API token is now stored as a secret
 - Writes are flushed every second by default (previously every 60 seconds), configurable along with batch size, retries, timeout, gzip and TLS options
 - New default tags setting, applied to every point
 - Connection status now reports failed writes (bad token, missing bucket or org, rejected data) and runs periodic health checks
