@@ -10,7 +10,8 @@ _Audited 2026-10-30 at `e5a07d9` (tag v1.0.2)._
 - **Kept as before:** action option shapes. The Boolean value stays a dropdown, now with `allowInvalidValues`, so no option upgrade script is needed. A beta (v1.0.x) was published, so one upgrade script moves the token from config into secrets.
 - **Tests:** written against the fixed behaviour rather than as characterization tests, since those would have locked the bugs in. A fake InfluxDB HTTP server covers writes, auth errors, close/flush and the instance lifecycle.
 - **Live test (2026-10-31):** InfluxDB OSS v2.8.0. Points from every action landed with the correct values, types and tags, and bad token, bucket and org, type conflicts and an unreachable server each produce the intended status.
-- **Not done yet:** Phases C–E.
+- **Phase C is done** on branch `feat/phase-c`. Write Point, variables, feedbacks and presets were verified in Companion 5.1.1 against InfluxDB 2.8.
+- **Not done yet:** Phases D–E.
 
 ## 1. What exists today
 

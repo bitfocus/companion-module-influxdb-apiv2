@@ -27,6 +27,10 @@ yarn package
 - Fixed tag parsing: empty tags, values containing `=`, whitespace and escaped commas
 - Fixed the Write action producing invalid line protocol with empty tags, and imprecise timestamps
 - Write Boolean Point accepts expressions (true/false, 1/0, yes/no, on/off)
+- New Write Point action: any number of typed fields (float, integer, unsigned, boolean, string), optional timestamp and per-action bucket/org
+- Variables for connection status, server version, points queued and written, write errors and last write time
+- Feedbacks: Connection OK and Writes failing
+- Presets: status, counters, flush and a button that logs its own presses
 
 ## 1.0.0
 
