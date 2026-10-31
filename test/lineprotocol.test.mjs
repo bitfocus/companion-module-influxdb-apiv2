@@ -31,6 +31,20 @@ describe('parseTags', () => {
 		expect(parseTags('room=Studio\\ A').tags).toEqual({ room: 'Studio A' })
 	})
 
+	test('a trailing escaped space is kept', () => {
+		expect(parseTags('room=Studio\\ ').tags).toEqual({ room: 'Studio ' })
+	})
+
+	test('an escaped backslash is a literal backslash, so UNC paths work', () => {
+		expect(parseTags('share=\\\\\\\\nas\\media').tags).toEqual({ share: '\\\\nas\\media' })
+	})
+
+	test('a literal backslash right before a separator is rejected', () => {
+		const result = parseTags('b=x\\\\\\ y,ok=1')
+		expect(result.tags).toEqual({ ok: '1' })
+		expect(result.errors[0]).toMatch(/backslash/)
+	})
+
 	test('a tag ending in a backslash is rejected instead of breaking the line', () => {
 		const result = parseTags('ok=1,p=C:\\')
 		expect(result.tags).toEqual({ ok: '1' })
@@ -86,9 +100,18 @@ describe('parseFields', () => {
 
 	test('field names: escaped spaces are unescaped and a trailing backslash is rejected', () => {
 		expect(parseFields('a\\ b=1').fields).toEqual([{ key: 'a b', type: 'float', value: 1 }])
-		const result = parseFields('ok=1, dir\\ =2')
+		expect(parseFields('dir\\ =2').fields.map((f) => f.key)).toEqual(['dir '])
+		const result = parseFields('ok=1, dir\\\\=2')
 		expect(result.fields.map((f) => f.key)).toEqual(['ok'])
 		expect(result.errors[0]).toMatch(/backslash/)
+	})
+
+	test('out-of-range numbers are skipped one field at a time', () => {
+		const { fields, errors } = parseFields(
+			'ok=1, big=1e400, u=18446744073709551616u, umax=18446744073709551615u, i=9223372036854775808i, imin=-9223372036854775808i',
+		)
+		expect(fields.map((f) => f.key)).toEqual(['ok', 'umax', 'imin'])
+		expect(errors).toHaveLength(3)
 	})
 
 	test('reports values that are not valid', () => {

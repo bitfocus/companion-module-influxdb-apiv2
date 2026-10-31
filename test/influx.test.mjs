@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { Point } from '@influxdata/influxdb-client'
 import influx from '../src/influx.js'
 import cfg from '../src/config.js'
@@ -75,6 +75,28 @@ describe('InfluxConnection', () => {
 		await c.close()
 		const buckets = fake.state.writes.map((w) => new URL(w.url, 'http://x').searchParams.get('bucket'))
 		expect(buckets.sort()).toEqual(Array.from({ length: 25 }, (_, i) => `b${i}`).sort())
+	})
+
+	test('a close that times out also disposes writers still closing after eviction', async () => {
+		const c = connect()
+		for (let i = 0; i < 21; i++) c.writePoint(new Point('m').floatField('v', i), { bucket: `b${i}` })
+		const [evicted] = c.closingWriters.keys()
+		expect(evicted).toBeDefined()
+		let disposed = false
+		evicted.dispose = () => {
+			disposed = true
+			return 0
+		}
+		// Make every close hang so the 5 s timeout fires
+		for (const w of c.writeApis.values()) w.close = () => new Promise(() => {})
+		c.closingWriters.set(evicted, new Promise(() => {}))
+		vi.useFakeTimers()
+		const closing = c.close().catch((e) => e)
+		await vi.advanceTimersByTimeAsync(6000)
+		vi.useRealTimers()
+		expect(await closing).toBeInstanceOf(Error)
+		expect(disposed).toBe(true)
+		connection = null
 	})
 
 	test('using an override again keeps it from being evicted', async () => {

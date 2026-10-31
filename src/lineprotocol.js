@@ -30,10 +30,41 @@ function unescape(str) {
 	return str.replace(/\\([,= \\])/g, '$1')
 }
 
+/** Trim whitespace, but keep a trailing space that is escaped with a backslash */
+function trimUnescaped(str) {
+	const s = str.replace(/^\s+/, '')
+	let end = s.length
+	while (end > 0 && /\s/.test(s[end - 1])) {
+		let backslashes = 0
+		for (let i = end - 2; i >= 0 && s[i] === '\\'; i--) backslashes++
+		if (backslashes % 2 === 1) break
+		end--
+	}
+	return s.slice(0, end)
+}
+
+/** Read a tag key, tag value or field name as typed: trim, then remove escapes */
+function readName(raw) {
+	return unescape(trimUnescaped(raw))
+}
+
+/**
+ * The InfluxDB client escapes commas, equals signs and spaces but not backslashes, so a literal
+ * backslash right before one of those (or at the very end) would swallow the separator.
+ * @param {string} name a measurement, tag key or value, or field name, after unescaping
+ * @returns {string | undefined} why the name can't be written, if it can't
+ */
+function nameProblem(name) {
+	if (/\\([,= ]|$)/.test(name)) {
+		return 'a backslash cannot be the last character or come right before a comma, equals sign or space'
+	}
+	return undefined
+}
+
 /**
  * Parse a `key=value,key2=value2` tag string.
  * Whitespace around keys and values is trimmed, empty entries are skipped, and
- * values may contain `=`. A literal `,` or `=` can be written as `\,` or `\=`.
+ * values may contain `=`. `\,` `\=` `\ ` and `\\` are escapes for a comma, equals sign, space and backslash.
  * @param {string | undefined} input
  * @returns {{ tags: Record<string, string>, errors: string[] }}
  */
@@ -46,16 +77,16 @@ function parseTags(input) {
 		if (entry.trim() === '') continue
 
 		const [rawKey, rawValue] = splitUnescaped(entry, '=', 2)
-		const key = unescape(rawKey.trim())
-		const value = rawValue === undefined ? '' : unescape(rawValue.trim())
+		const key = readName(rawKey)
+		const value = rawValue === undefined ? '' : readName(rawValue)
 
 		if (key === '' || value === '') {
 			errors.push(`Ignoring malformed tag "${entry.trim()}" (expected key=value)`)
 			continue
 		}
-		// The client does not escape backslashes, so a trailing one would escape the separator after it
-		if (key.endsWith('\\') || value.endsWith('\\')) {
-			errors.push(`Ignoring tag "${entry.trim()}": a tag cannot end with a backslash`)
+		const problem = nameProblem(key) ?? nameProblem(value)
+		if (problem) {
+			errors.push(`Ignoring tag "${entry.trim()}": ${problem}`)
 			continue
 		}
 		tags[key] = value
@@ -119,6 +150,10 @@ function splitOutsideQuotes(str, sep, limit = Infinity) {
 	return parts
 }
 
+const INT64_MIN = -(2n ** 63n)
+const INT64_MAX = 2n ** 63n - 1n
+const UINT64_MAX = 2n ** 64n - 1n
+
 const FLOAT_RE = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/
 const BOOL_TRUE = ['t', 'T', 'true', 'True', 'TRUE']
 const BOOL_FALSE = ['f', 'F', 'false', 'False', 'FALSE']
@@ -143,28 +178,33 @@ function parseFields(input) {
 		if (entry.trim() === '') continue
 
 		const [rawKey, rawValue] = splitOutsideQuotes(entry, '=', 2)
-		const key = unescape(rawKey.trim())
+		const key = readName(rawKey)
 		const value = (rawValue ?? '').trim()
 		if (!key || value === '') {
 			errors.push(`Malformed field "${entry.trim()}" (expected key=value)`)
 			continue
 		}
-		// The client does not escape backslashes, so a trailing one would escape the = after it
-		if (key.endsWith('\\')) {
-			errors.push(`Ignoring field "${entry.trim()}": a field name cannot end with a backslash`)
+		const problem = nameProblem(key)
+		if (problem) {
+			errors.push(`Ignoring field "${entry.trim()}": ${problem}`)
 			continue
 		}
 
 		if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) {
 			fields.push({ key, type: 'string', value: value.slice(1, -1).replace(/\\(["\\])/g, '$1') })
 		} else if (/^[+-]?\d+i$/.test(value)) {
-			fields.push({ key, type: 'int', value: value.slice(0, -1) })
+			const n = BigInt(value.slice(0, -1))
+			if (n < INT64_MIN || n > INT64_MAX) errors.push(`Field "${key}" is outside the 64-bit integer range`)
+			else fields.push({ key, type: 'int', value: value.slice(0, -1) })
 		} else if (/^\d+u$/.test(value)) {
-			fields.push({ key, type: 'uint', value: value.slice(0, -1) })
+			if (BigInt(value.slice(0, -1)) > UINT64_MAX) errors.push(`Field "${key}" is outside the 64-bit unsigned range`)
+			else fields.push({ key, type: 'uint', value: value.slice(0, -1) })
 		} else if (BOOL_TRUE.includes(value) || BOOL_FALSE.includes(value)) {
 			fields.push({ key, type: 'bool', value: BOOL_TRUE.includes(value) })
 		} else if (FLOAT_RE.test(value)) {
-			fields.push({ key, type: 'float', value: Number(value) })
+			const n = Number(value)
+			if (Number.isFinite(n)) fields.push({ key, type: 'float', value: n })
+			else errors.push(`Field "${key}" is too large for a float`)
 		} else {
 			errors.push(
 				`Field "${key}" has value ${value}: use a number, an integer like 3i or 3u, true/false, or "quoted text"`,
@@ -207,4 +247,4 @@ function parseTimestamp(input, precision = 'ms') {
 	return (BigInt(ms) * PRECISION_TO_NS.ms).toString()
 }
 
-module.exports = { parseTags, parseFields, parseTimestamp, buildLine, splitUnescaped }
+module.exports = { parseTags, parseFields, parseTimestamp, buildLine, splitUnescaped, nameProblem }

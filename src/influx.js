@@ -44,8 +44,8 @@ class InfluxConnection {
 
 		/** One buffered writer per org/bucket; actions can target a bucket other than the default */
 		this.writeApis = new Map()
-		/** Evicted override writers still flushing, so close() can wait for them */
-		this.closingWriters = new Set()
+		/** Evicted override writers still flushing, so close() can wait for (or dispose) them */
+		this.closingWriters = new Map()
 		this.writeApi = this.getWriteApi()
 
 		this.health = new HealthAPI(this.influx)
@@ -128,11 +128,14 @@ class InfluxConnection {
 		for (const [key, writeApi] of this.writeApis) {
 			if (writeApi === this.writeApi) continue
 			this.writeApis.delete(key)
+			// flush(true) also sends points waiting to be retried, which close() alone would drop
 			const closing = writeApi
-				.close()
+				.flush(true)
+				.catch(() => {})
+				.then(() => writeApi.close())
 				.catch(() => writeApi.dispose())
-				.finally(() => this.closingWriters.delete(closing))
-			this.closingWriters.add(closing)
+				.finally(() => this.closingWriters.delete(writeApi))
+			this.closingWriters.set(writeApi, closing)
 			return
 		}
 	}
@@ -231,12 +234,12 @@ class InfluxConnection {
 		})
 		try {
 			await Promise.race([
-				Promise.all([...[...this.writeApis.values()].map((w) => w.close()), ...this.closingWriters]),
+				Promise.all([...[...this.writeApis.values()].map((w) => w.close()), ...this.closingWriters.values()]),
 				timeout,
 			])
 		} catch (e) {
 			// Could not flush in time (server down?), drop the rest rather than hang shutdown
-			for (const w of this.writeApis.values()) w.dispose()
+			for (const w of [...this.writeApis.values(), ...this.closingWriters.keys()]) w.dispose()
 			throw e
 		} finally {
 			clearTimeout(timer)

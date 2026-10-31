@@ -21,7 +21,7 @@ The connection status shows the reason for problems with the configured bucket: 
 
 ### Actions
 
-Every text option accepts variables, and any option can be switched to an expression. If an action's input is invalid (for example a value that is not a number), a warning is logged and that action writes nothing.
+Every text option accepts variables, and most options can be switched to an expression. If an action can't build its point (a missing measurement, a value that is not a number, or no usable field), a warning is logged and that action writes nothing. Individual tags or Write Point fields that can't be used are skipped with a warning, and the rest of the point is still written.
 
 - **Write Point**: write one point with any number of fields. Fields are comma separated `key=value` pairs, and the type comes from how the value is written, as in line protocol:
   - `21.5` or `1e3`: float
@@ -29,11 +29,11 @@ Every text option accepts variables, and any option can be switched to an expres
   - `true` / `false` (also `t`, `f`, `True`, `FALSE`, ...): boolean
   - `"some text"`: string. Commas and `=` are fine inside the quotes; write `\"` for a quote.
 
-  Integers must fit in 64 bits. Field names follow the same escaping rules as tags (see below). A field that can't be read is skipped with a warning, and the point is not written if no field is valid.
+  Integers must fit in 64 bits, and floats must be finite. Field names follow the same escaping rules as tags (see below). A field that can't be read or is out of range is skipped with a warning; the point is not written if no field is valid.
 
-  For example `temp=21.5, count=3i, ok=true, note="studio A"`. Leave **Timestamp** empty to use the time of the press, or give a number in the chosen precision or a date such as `2026-10-31T09:00:00Z`. **Bucket** and **Organization** can override the connection's settings for this action. Up to 20 overrides are kept open at once; when more are used, the least recently used one is flushed and closed. Failures on an override are reported in the log and the `last_error` variable rather than the connection status.
+  For example `temp=21.5, count=3i, ok=true, note="studio A"`. Leave **Timestamp** empty to use the time of the press, or give a number in the chosen precision or a date such as `2026-10-31T09:00:00Z`. A date and time without `Z` or an offset is read in the Companion computer's time zone; a date on its own is UTC. **Bucket** and **Organization** can override the connection's settings for this action. Up to 20 overrides are kept open at once; when more are used, the least recently used one is flushed and closed. Failures on an override are reported in the log and the `last_error` variable rather than the connection status.
 
-- **Write Float Point**, **Write String Point**, **Write Boolean Point**: write one point with a single field. The measurement, tags and field name are escaped for you.
+- **Write Float Point**, **Write String Point**, **Write Boolean Point**: write one point with a single field. The measurement, tags and field name are escaped for you (apart from the backslash rule below).
 - **Write**: write one raw line of line protocol from a measurement, tags and fields. String field values must be in double quotes, and you are responsible for escaping. The timestamp is added automatically. Default tags are not added to this action.
 - **Flush Buffer**: send everything that is buffered now.
 - **Run Flux Query**: run a Flux query (InfluxDB 2.x) and return the result. In the action's **Store Action Result** setting, choose a local, page or custom variable to keep it in, then use that variable on the button or in later actions. **Return** picks what comes back:
@@ -44,7 +44,14 @@ Every text option accepts variables, and any option can be switched to an expres
 
   An empty result returns nothing (null), or 0 rows. The token needs read access to the bucket. Errors such as a Flux syntax error or a missing bucket appear in the connection log. Variables in the query are replaced before it runs, so a query can depend on other buttons.
 
-**Tags** are comma separated `key=value` pairs, for example `room=studio,source=companion`. Leave the field empty for no tags. Values may contain `=`. Write `\,` for a literal comma or `\ ` for a space; any other backslash is kept as is (for example `C:\temp`), but a tag cannot end with a backslash.
+**Tags** are comma separated `key=value` pairs, for example `room=studio,source=companion`. Leave the field empty for no tags. Values may contain `=` and spaces. These backslash escapes are understood:
+
+- `\,` a comma (otherwise a comma starts the next tag)
+- `\=` an equals sign in a tag key
+- a backslash before a space keeps a space at the start or end of a value, which is otherwise trimmed
+- `\\` a single backslash, for example `\\\\nas\media` for the path `\\nas\media`
+
+Any other backslash is kept as is (for example `C:\temp`). Measurements need no escapes: type commas and spaces as they are. A backslash that is left over after these escapes can't be the last character of a tag, measurement or field name, or come right before a comma, equals sign or space; InfluxDB would misread the line, so the module refuses it with a warning.
 
 For **Write Boolean Point** in expression mode, the expression can return `true`/`false`, `1`/`0`, `yes`/`no` or `on`/`off`.
 

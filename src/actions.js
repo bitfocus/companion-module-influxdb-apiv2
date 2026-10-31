@@ -1,5 +1,5 @@
 const { Point, currentTime } = require('@influxdata/influxdb-client')
-const { parseTags, parseFields, parseTimestamp, buildLine } = require('./lineprotocol')
+const { parseTags, parseFields, parseTimestamp, buildLine, nameProblem } = require('./lineprotocol')
 const { describeError } = require('./influx')
 
 const measurementOption = (defaultValue = 'example') => ({
@@ -16,7 +16,7 @@ const tagsOption = {
 	label: 'Tags',
 	default: 'tag1=value1,tag2=value2',
 	tooltip:
-		'Comma separated key=value pairs. Leave empty for no tags. Write \\, \\= or \\ (backslash space) for a literal comma, equals sign or space. A tag cannot end with a backslash.',
+		'Comma separated key=value pairs. Leave empty for no tags. Escapes: \\, comma, \\= equals sign, backslash-space for a leading or trailing space, \\\\ backslash. A backslash cannot end a tag.',
 	useVariables: true,
 }
 
@@ -63,6 +63,12 @@ function setIntField(point, key, digits) {
 	}
 }
 
+/** Throw if the client would write this measurement or field name as invalid line protocol */
+function checkName(label, name) {
+	const problem = nameProblem(name)
+	if (problem) throw new Error(`${label} "${name}": ${problem}`)
+}
+
 module.exports = function (self) {
 	/**
 	 * Build a point from the shared measurement/tags/field options.
@@ -74,6 +80,8 @@ module.exports = function (self) {
 		const field = String(options.field ?? '').trim()
 		if (!measurement) throw new Error('Measurement is required')
 		if (!field) throw new Error('Field is required')
+		checkName('Measurement', measurement)
+		checkName('Field', field)
 
 		const point = new Point(measurement)
 		const { tags, errors } = parseTags(options.tags)
@@ -254,6 +262,7 @@ module.exports = function (self) {
 			callback: writeAction('Write Point', (options, connection) => {
 				const measurement = String(options.measurement ?? '').trim()
 				if (!measurement) throw new Error('Measurement is required')
+				checkName('Measurement', measurement)
 
 				const { fields, errors } = parseFields(options.fields)
 				if (errors.length && !fields.length) throw new Error(errors.join('; '))

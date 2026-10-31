@@ -121,6 +121,19 @@ describe('actions', () => {
 		expect(maxRows.clampValues).toBe(true)
 	})
 
+	test('a measurement or field name the client would write invalidly is refused', async () => {
+		await t.run('writeFloatPoint', { measurement: 'studio\\', tags: '', field: 'v', value: '1' })
+		await t.run('writeFloatPoint', { measurement: 'm', tags: '', field: 'val\\', value: '1' })
+		await t.run('writePoint', { measurement: 'a\\ b', tags: '', fields: 'v=1', precision: 'ms' })
+		expect(t.written).toEqual([])
+		expect(t.logs.filter((l) => l.level === 'warn' && l.message.includes('backslash'))).toHaveLength(3)
+	})
+
+	test('write point drops an out-of-range field but keeps the rest of the point', async () => {
+		await t.run('writePoint', { measurement: 'm', tags: '', fields: 'temp=21.5, big=1e400', precision: 'ms' })
+		expect(t.written.map(noTs)).toEqual(['m temp=21.5'])
+	})
+
 	test('write point skips bad fields but writes the rest', async () => {
 		await t.run('writePoint', { measurement: 'm', tags: '', fields: 'good=1, bad=nope', precision: 'ms' })
 		expect(t.written.map(noTs)).toEqual(['m good=1'])
