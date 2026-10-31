@@ -1,6 +1,3 @@
-
-
-module.exports = async function (self) {
-	self.setFeedbackDefinitions({
-	})
+module.exports = function (self) {
+	self.setFeedbackDefinitions({})
 }

@@ -1,33 +1,90 @@
-const { InstanceBase, InstanceStatus } = require('@companion-module/base')
-const { Point } = require('@influxdata/influxdb-client')
+const { Point, currentTime } = require('@influxdata/influxdb-client')
+const { parseTags, buildLine } = require('./lineprotocol')
+
+const measurementOption = (defaultValue = 'example') => ({
+	id: 'measurement',
+	type: 'textinput',
+	label: 'Measurement',
+	default: defaultValue,
+	useVariables: true,
+})
+
+const tagsOption = {
+	id: 'tags',
+	type: 'textinput',
+	label: 'Tags',
+	default: 'tag1=value1,tag2=value2',
+	tooltip:
+		'Comma separated key=value pairs. Leave empty for no tags. Write \\, or \\= for a literal comma or equals sign.',
+	useVariables: true,
+}
+
+const fieldOption = (defaultValue) => ({
+	id: 'field',
+	type: 'textinput',
+	label: 'Field',
+	default: defaultValue,
+	useVariables: true,
+})
+
+/**
+ * Accept the usual spellings of a boolean, so expressions can return true/false, 1/0, on/off, ...
+ * @returns {boolean | undefined}
+ */
+function toBoolean(value) {
+	if (typeof value === 'boolean') return value
+	if (typeof value === 'number') return value !== 0
+	const str = String(value ?? '')
+		.trim()
+		.toLowerCase()
+	if (['true', '1', 'yes', 'on'].includes(str)) return true
+	if (['false', '0', 'no', 'off'].includes(str)) return false
+	return undefined
+}
 
 module.exports = function (self) {
+	/**
+	 * Build a point from the shared measurement/tags/field options.
+	 * @param {Record<string, any>} options
+	 * @param {(point: Point, field: string) => void} setField
+	 */
+	const buildPoint = (options, setField) => {
+		const measurement = String(options.measurement ?? '').trim()
+		const field = String(options.field ?? '').trim()
+		if (!measurement) throw new Error('Measurement is required')
+		if (!field) throw new Error('Field is required')
+
+		const point = new Point(measurement)
+		const { tags, errors } = parseTags(options.tags)
+		for (const error of errors) self.log('warn', error)
+		for (const [key, value] of Object.entries(tags)) point.tag(key, value)
+
+		setField(point, field)
+		return point
+	}
+
+	/**
+	 * Wrap an action callback so input problems are logged instead of thrown.
+	 * These are mistakes in the button, not connection problems, so they don't change the status.
+	 */
+	const writeAction = (name, fn) => async (event) => {
+		try {
+			const connection = self.requireConnection()
+			const written = fn(event.options, connection)
+			self.log('debug', `Queued for InfluxDB: ${written}`)
+		} catch (error) {
+			self.log('warn', `${name}: ${error.message}`)
+		}
+	}
+
 	self.setActionDefinitions({
 		writeFloatPoint: {
 			name: 'Write Float Point',
-			description: 'Write a float point to InfluxDB',
+			description: 'Write a point with one float field',
 			options: [
-				{
-					id: 'measurement',
-					type: 'textinput',
-					label: 'Measurement',
-					default: 'example',
-					useVariables: true,
-				},
-				{
-					id: 'tags',
-					type: 'textinput',
-					label: 'Tags',
-					default: 'tag1=value1,tag2=value2',
-					useVariables: true,
-				},
-				{
-					id: 'field',
-					type: 'textinput',
-					label: 'Field',
-					default: 'value',
-					useVariables: true,
-				},
+				measurementOption(),
+				tagsOption,
+				fieldOption('value'),
 				{
 					id: 'value',
 					type: 'textinput',
@@ -36,61 +93,23 @@ module.exports = function (self) {
 					useVariables: true,
 				},
 			],
-			callback: async (event, context) => {
-				try {
-					// Parse variables in options
-					const measurementString = await context.parseVariablesInString(event.options.measurement)
-					const tagsString = await context.parseVariablesInString(event.options.tags)
-					const fieldString = await context.parseVariablesInString(event.options.field)
-					const valueString = await context.parseVariablesInString(event.options.value)
+			callback: writeAction('Write Float Point', (options, connection) => {
+				const raw = String(options.value ?? '').trim()
+				const value = Number(raw)
+				if (raw === '' || !Number.isFinite(value)) throw new Error(`"${raw}" is not a number`)
 
-					// Create point
-					const point = new Point(event.options.measurement).floatField(event.options.field, parseFloat(valueString))
-
-					// Add tags
-					const tags = tagsString.split(',')
-					tags.forEach((tag) => {
-						const [key, value] = tag.split('=')
-						point.tag(key, value)
-					})
-
-					// Send to Influx
-					self.writeApi.writePoint(point)
-					self.log(
-						'debug',
-						`Sent to Influx: ${measurementString},${tagsString} ${fieldString}=${valueString} ${Date.now() * 1000000}`
-					)
-				} catch (error) {
-					self.log('error', `Error sending to Influx: ${error.message}`)
-					self.updateStatus(InstanceStatus.UnknownError, error.message)
-				}
-			},
+				const point = buildPoint(options, (p, field) => p.floatField(field, value))
+				connection.writePoint(point)
+				return point.toString()
+			}),
 		},
 		writeStringPoint: {
 			name: 'Write String Point',
-			description: 'Write a string point to InfluxDB',
+			description: 'Write a point with one string field',
 			options: [
-				{
-					id: 'measurement',
-					type: 'textinput',
-					label: 'Measurement',
-					default: 'example',
-					useVariables: true,
-				},
-				{
-					id: 'tags',
-					type: 'textinput',
-					label: 'Tags',
-					default: 'tag1=value1,tag2=value2',
-					useVariables: true,
-				},
-				{
-					id: 'field',
-					type: 'textinput',
-					label: 'Field',
-					default: 'value',
-					useVariables: true,
-				},
+				measurementOption(),
+				tagsOption,
+				fieldOption('value'),
 				{
 					id: 'value',
 					type: 'textinput',
@@ -99,61 +118,20 @@ module.exports = function (self) {
 					useVariables: true,
 				},
 			],
-			callback: async (event, context) => {
-				try {
-					// Parse variables in options
-					const measurementString = await context.parseVariablesInString(event.options.measurement)
-					const tagsString = await context.parseVariablesInString(event.options.tags)
-					const fieldString = await context.parseVariablesInString(event.options.field)
-					const valueString = await context.parseVariablesInString(event.options.value)
-
-					// Create point
-					const point = new Point(measurementString).stringField(fieldString, valueString)
-
-					// Add tags
-					const tags = tagsString.split(',')
-					tags.forEach((tag) => {
-						const [key, value] = tag.split('=')
-						point.tag(key, value)
-					})
-
-					// Send to Influx
-					self.writeApi.writePoint(point)
-					self.log(
-						'debug',
-						`Sent to Influx: ${measurementString},${tagsString} ${fieldString}=${valueString} ${Date.now() * 1000000}`
-					)
-				} catch (error) {
-					self.log('error', `Error sending to Influx: ${error.message}`)
-					self.updateStatus(InstanceStatus.UnknownError, error.message)
-				}
-			},
+			callback: writeAction('Write String Point', (options, connection) => {
+				const value = String(options.value ?? '')
+				const point = buildPoint(options, (p, field) => p.stringField(field, value))
+				connection.writePoint(point)
+				return point.toString()
+			}),
 		},
 		writeBooleanPoint: {
 			name: 'Write Boolean Point',
-			description: 'Write a boolean point to InfluxDB',
+			description: 'Write a point with one boolean field',
 			options: [
-				{
-					id: 'measurement',
-					type: 'textinput',
-					label: 'Measurement',
-					default: 'example',
-					useVariables: true,
-				},
-				{
-					id: 'tags',
-					type: 'textinput',
-					label: 'Tags',
-					default: 'tag1=value1,tag2=value2',
-					useVariables: true,
-				},
-				{
-					id: 'field',
-					type: 'textinput',
-					label: 'Field',
-					default: 'field',
-					useVariables: true,
-				},
+				measurementOption(),
+				tagsOption,
+				fieldOption('field'),
 				{
 					id: 'value',
 					type: 'dropdown',
@@ -163,58 +141,26 @@ module.exports = function (self) {
 						{ id: 'true', label: 'True' },
 						{ id: 'false', label: 'False' },
 					],
+					allowInvalidValues: true,
+					expressionDescription: 'Should return true/false, 1/0, yes/no or on/off',
 				},
 			],
-			callback: async (event, context) => {
-				try {
-					// Parse variables in options
-					const measurementString = await context.parseVariablesInString(event.options.measurement)
-					const tagsString = await context.parseVariablesInString(event.options.tags)
-					const fieldString = await context.parseVariablesInString(event.options.field)
+			callback: writeAction('Write Boolean Point', (options, connection) => {
+				const value = toBoolean(options.value)
+				if (value === undefined) throw new Error(`"${options.value}" is not a boolean`)
 
-					// Create point
-					const point = new Point(measurementString).booleanField(fieldString, event.options.value === 'true')
-
-					// Add tags
-					const tags = tagsString.split(',')
-					tags.forEach((tag) => {
-						const [key, value] = tag.split('=')
-						point.tag(key, value)
-					})
-
-					// Send to Influx
-					self.writeApi.writePoint(point)
-					self.log(
-						'debug',
-						`Sent to Influx: ${measurementString},${tagsString} ${fieldString}=${event.options.value} ${
-							Date.now() * 1000000
-						}`
-					)
-				} catch (error) {
-					self.log('error', `Error sending to Influx: ${error.message}`)
-					self.updateStatus(InstanceStatus.UnknownError, error.message)
-				}
-			},
+				const point = buildPoint(options, (p, field) => p.booleanField(field, value))
+				connection.writePoint(point)
+				return point.toString()
+			}),
 		},
 		writeInflux: {
 			name: 'Write',
 			description:
-				'Writes a single line to InfluxDB. Fields and tags should be comma separated with key=value pairs, and fields with string values should be enclosed in double quotes.',
+				'Write a single line of line protocol. Tags and fields are comma separated key=value pairs, string field values must be in double quotes, and you are responsible for escaping. The timestamp is added automatically.',
 			options: [
-				{
-					id: 'measurement',
-					type: 'textinput',
-					label: 'Measurement',
-					default: 'exampleMeasurement',
-					useVariables: true,
-				},
-				{
-					id: 'tags',
-					type: 'textinput',
-					label: 'Tags',
-					default: 'tag1=value1,tag2=value2',
-					useVariables: true,
-				},
+				measurementOption('exampleMeasurement'),
+				tagsOption,
 				{
 					id: 'fields',
 					type: 'textinput',
@@ -223,38 +169,27 @@ module.exports = function (self) {
 					useVariables: true,
 				},
 			],
-			callback: async (event) => {
-				try {
-					// Parse variables in options
-					const measurementString = await self.parseVariablesInString(event.options.measurement)
-					const tagsString = await self.parseVariablesInString(event.options.tags)
-					const fieldsString = await self.parseVariablesInString(event.options.fields)
-
-					// Create payload
-					const payload = `${measurementString},${tagsString} ${fieldsString} ${Date.now() * 1000000}`
-
-					// Send to Influx
-					self.writeApi.writeRecord(payload)
-					self.log('debug', `Sent to Influx: ${payload}`)
-				} catch (error) {
-					self.log('error', `Error sending to Influx: ${error.message}`)
-					self.updateStatus(InstanceStatus.UnknownError, error.message)
-				}
-			},
+			callback: writeAction('Write', (options, connection) => {
+				const line = buildLine(options.measurement, options.tags, options.fields, currentTime.ns())
+				connection.writeRecords([line])
+				return line
+			}),
 		},
 		flushBuffer: {
 			name: 'Flush Buffer',
 			description:
-				'By default this module will buffer writes to InfluxDB for efficiency. This action will immediately flush the buffer and send all pending writes to InfluxDB',
+				'Writes are buffered and sent in batches (see Flush interval in the connection settings). This sends everything that is buffered now.',
+			options: [],
 			callback: async () => {
 				try {
-					self.writeApi.flush()
+					await self.requireConnection().flush()
 					self.log('debug', 'InfluxDB buffer flushed')
 				} catch (error) {
-					self.log('error', `Error flushing InfluxDB buffer: ${error.message}`)
-					self.updateStatus(InstanceStatus.UnknownError, error.message)
+					self.log('warn', `Flush Buffer: ${error.message}`)
 				}
 			},
 		},
 	})
 }
+
+module.exports.toBoolean = toBoolean

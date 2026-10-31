@@ -1,98 +1,173 @@
-const { InstanceBase, Regex, runEntrypoint, InstanceStatus } = require('@companion-module/base')
-const UpgradeScripts = require('./upgrades')
+const { InstanceBase, InstanceStatus } = require('@companion-module/base')
 const UpdateActions = require('./actions')
 const UpdateFeedbacks = require('./feedbacks')
 const UpdateVariableDefinitions = require('./variables')
-const { InfluxDB } = require('@influxdata/influxdb-client')
-const { PingAPI, HealthAPI } = require('@influxdata/influxdb-client-apis')
+const { GetConfigFields, resolveConfig } = require('./config')
+const { InfluxConnection, describeError } = require('./influx')
 
 class InfluxInstance extends InstanceBase {
 	constructor(internal) {
 		super(internal)
+
+		/** @type {InfluxConnection | null} */
+		this.connection = null
+		/** @type {import('./config').ResolvedConfig | null} */
+		this.settings = null
+		this.healthTimer = null
+		/** Bumped on every (re)start so results from an old connection are ignored */
+		this.generation = 0
+
+		this.configErrors = []
+		/** @type {{ status: string, message: string } | null} */
+		this.healthError = null
+		/** @type {{ status: string, message: string } | null} */
+		this.writeError = null
+		this.healthy = false
+		this.serverVersion = undefined
 	}
 
-	async init(config) {
-		this.config = config
-		this.influx = new InfluxDB({
-			url: this.config.url,
-			token: this.config.token,
-		})
-		this.ping = new PingAPI(this.influx)
+	async init(config, _isFirstInit, secrets) {
+		this.updateActions()
+		this.updateFeedbacks()
+		this.updateVariableDefinitions()
 
-		this.ping
-			.getPing() // check ping
-			.then(() => {
-				this.log('info', 'InfluxDB is pingable')
-				this.updateStatus(InstanceStatus.Ok)
-			})
-			.catch((error) => {
-				this.log('error', 'InfluxDB is not pingable')
-				this.updateStatus(InstanceStatus.ConnectionFailure, 'InfluxDB is not pingable')
-			})
-
-		this.health = new HealthAPI(this.influx)
-
-		this.health
-			.getHealth() // check health
-			.then(() => {
-				this.log('info', 'InfluxDB is healthy')
-				this.updateStatus(InstanceStatus.Ok)
-			})
-			.catch((error) => {
-				this.log('error', 'InfluxDB is not healthy')
-				this.updateStatus(InstanceStatus.ConnectionFailure, 'InfluxDB is not healthy')
-			})
-
-		this.writeApi = this.influx.getWriteApi(this.config.org, this.config.bucket)
-
-		this.updateActions() // export actions
-		this.updateFeedbacks() // export feedbacks
-		this.updateVariableDefinitions() // export variable definitions
+		this.start(config, secrets)
 	}
-	// When module gets deleted
+
 	async destroy() {
-		this.log('debug', 'destroy')
+		await this.stop()
 	}
 
-	async configUpdated(config) {
-		this.init(config)
+	async configUpdated(config, secrets) {
+		await this.stop()
+		this.start(config, secrets)
 	}
 
-	// Return config fields for web config
 	getConfigFields() {
-		return [
-			{
-				type: 'textinput',
-				id: 'url',
-				label: 'InfluxDB URL',
-				width: 8,
-				default: 'http://localhost:8086',
-				regex: Regex.SOMETHING,
-			},
-			{
-				type: 'textinput',
-				id: 'token',
-				label: 'InfluxDB Token',
-				width: 8,
-				regex: Regex.SOMETHING,
-			},
-			{
-				type: 'textinput',
-				id: 'org',
-				label: 'InfluxDB Organization',
-				tooltip: 'Can be the name or ID of the organization',
-				width: 4,
-				regex: Regex.SOMETHING,
-			},
-			{
-				type: 'textinput',
-				id: 'bucket',
-				label: 'InfluxDB Bucket',
-				tooltip: 'Can be the name or ID of the bucket',
-				width: 4,
-				regex: Regex.SOMETHING,
-			},
-		]
+		return GetConfigFields()
+	}
+
+	start(config, secrets) {
+		const generation = ++this.generation
+		const { config: settings, errors } = resolveConfig(config, secrets)
+
+		this.settings = settings
+		this.configErrors = errors
+		this.healthError = null
+		this.writeError = null
+		this.healthy = false
+		this.serverVersion = undefined
+
+		if (errors.length) {
+			for (const error of errors) this.log('error', `Config: ${error}`)
+			this.refreshStatus()
+			return
+		}
+
+		try {
+			this.connection = new InfluxConnection(settings, {
+				onWriteSuccess: (lines) => {
+					if (generation !== this.generation) return
+					this.log('debug', `Wrote ${lines.length} line(s) to InfluxDB`)
+					if (this.writeError) {
+						this.log('info', 'Writes to InfluxDB are succeeding again')
+						this.writeError = null
+						this.refreshStatus()
+					}
+				},
+				onWriteFailed: (error, lines, attempt) => {
+					if (generation !== this.generation) return
+					const described = describeError(error)
+					this.log('error', `Write of ${lines.length} line(s) failed (attempt ${attempt}): ${described.message}`)
+					this.writeError = described
+					this.refreshStatus()
+				},
+			})
+		} catch (e) {
+			this.configErrors = [e.message]
+			this.log('error', `Could not create InfluxDB client: ${e.message}`)
+			this.refreshStatus()
+			return
+		}
+
+		this.refreshStatus()
+		this.runHealthCheck(generation)
+		if (settings.healthInterval > 0) {
+			this.healthTimer = setInterval(() => this.runHealthCheck(generation), settings.healthInterval * 1000)
+		}
+	}
+
+	async stop() {
+		this.generation++
+		if (this.healthTimer) {
+			clearInterval(this.healthTimer)
+			this.healthTimer = null
+		}
+
+		const connection = this.connection
+		this.connection = null
+		if (connection) {
+			try {
+				await connection.close()
+			} catch (e) {
+				this.log('warn', `Some buffered points could not be written before closing: ${e.message}`)
+			}
+		}
+	}
+
+	async runHealthCheck(generation) {
+		const connection = this.connection
+		if (!connection) return
+
+		try {
+			const { version } = await connection.checkHealth()
+			if (generation !== this.generation) return
+
+			if (!this.healthy || this.healthError) {
+				this.log('info', `Connected to InfluxDB${version ? ` ${version}` : ''} at ${this.settings.url}`)
+			}
+			this.healthy = true
+			this.healthError = null
+			this.serverVersion = version
+		} catch (e) {
+			if (generation !== this.generation) return
+
+			const described = describeError(e)
+			if (this.healthError?.message !== described.message) {
+				this.log('error', `InfluxDB health check failed: ${described.message}`)
+			}
+			this.healthy = false
+			this.healthError = described
+		}
+		this.refreshStatus()
+	}
+
+	/** Derive the connection status from config, health and write state */
+	refreshStatus() {
+		if (this.configErrors.length) {
+			this.updateStatus(InstanceStatus.BadConfig, this.configErrors.join('; '))
+		} else if (this.writeError) {
+			this.updateStatus(this.writeError.status, this.writeError.message)
+		} else if (this.healthError) {
+			this.updateStatus(this.healthError.status, this.healthError.message)
+		} else if (this.healthy) {
+			this.updateStatus(InstanceStatus.Ok)
+		} else {
+			this.updateStatus(InstanceStatus.Connecting)
+		}
+	}
+
+	/**
+	 * The active connection, or an error explaining why there is none.
+	 * @returns {InfluxConnection}
+	 */
+	requireConnection() {
+		if (!this.connection) {
+			throw new Error(
+				this.configErrors.length ? `Not connected: ${this.configErrors.join('; ')}` : 'Not connected to InfluxDB',
+			)
+		}
+		return this.connection
 	}
 
 	updateActions() {
@@ -108,4 +183,4 @@ class InfluxInstance extends InstanceBase {
 	}
 }
 
-runEntrypoint(InfluxInstance, UpgradeScripts)
+module.exports = InfluxInstance

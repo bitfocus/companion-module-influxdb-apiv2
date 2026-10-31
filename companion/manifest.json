@@ -19,7 +19,7 @@
 		"type": "node22",
 		"api": "nodejs-ipc",
 		"apiVersion": "0.0.0",
-		"entrypoint": "../src/main.js"
+		"entrypoint": "../src/index.mjs"
 	},
 	"legacyIds": [],
 	"manufacturer": "InfluxData",

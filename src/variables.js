@@ -1,3 +1,3 @@
-module.exports = async function (self) {
-	
+module.exports = function (self) {
+	self.setVariableDefinitions({})
 }
