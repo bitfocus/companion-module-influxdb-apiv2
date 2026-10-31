@@ -27,6 +27,10 @@ describe('parseTags', () => {
 		expect(parseTags('a=b\\\\c').tags).toEqual({ a: 'b\\c' })
 	})
 
+	test('an escaped space is unescaped so the client escapes it once', () => {
+		expect(parseTags('room=Studio\\ A').tags).toEqual({ room: 'Studio A' })
+	})
+
 	test('a tag ending in a backslash is rejected instead of breaking the line', () => {
 		const result = parseTags('ok=1,p=C:\\')
 		expect(result.tags).toEqual({ ok: '1' })
@@ -80,6 +84,13 @@ describe('parseFields', () => {
 		expect(parseFields('a=F,b=True,c=1e3').fields.map((f) => f.value)).toEqual([false, true, 1000])
 	})
 
+	test('field names: escaped spaces are unescaped and a trailing backslash is rejected', () => {
+		expect(parseFields('a\\ b=1').fields).toEqual([{ key: 'a b', type: 'float', value: 1 }])
+		const result = parseFields('ok=1, dir\\ =2')
+		expect(result.fields.map((f) => f.key)).toEqual(['ok'])
+		expect(result.errors[0]).toMatch(/backslash/)
+	})
+
 	test('reports values that are not valid', () => {
 		const { fields, errors } = parseFields('ok=1, bad=abc, nokey, =1, empty=, u=-1u')
 		expect(fields).toEqual([{ key: 'ok', type: 'float', value: 1 }])
@@ -105,6 +116,16 @@ describe('parseTimestamp', () => {
 
 	test('rejects garbage', () => {
 		expect(() => parseTimestamp('soon', 'ms')).toThrow('not a timestamp')
+	})
+
+	test('rejects impossible dates instead of rolling them over', () => {
+		expect(() => parseTimestamp('2026-02-31', 'ms')).toThrow('not a timestamp')
+		expect(() => parseTimestamp('2026-13-01T00:00:00Z', 'ms')).toThrow('not a timestamp')
+		expect(parseTimestamp('2028-02-29T00:00:00Z', 'ms')).toBe('1835395200000000000')
+	})
+
+	test('keeps time zone offsets', () => {
+		expect(parseTimestamp('2026-10-31T23:00:00-05:00', 'ms')).toBe('1793505600000000000')
 	})
 
 	test('rejects short decimals and phrases that Date.parse would accept', () => {

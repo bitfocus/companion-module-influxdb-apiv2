@@ -25,9 +25,9 @@ function splitUnescaped(str, sep, limit = Infinity) {
 	return parts
 }
 
-/** Remove the escapes users may type (`\,` `\=` `\\`); other backslashes are kept, eg `C:\temp` */
+/** Remove the escapes users may type (`\,` `\=` `\ ` `\\`); other backslashes are kept, eg `C:\temp` */
 function unescape(str) {
-	return str.replace(/\\([,=\\])/g, '$1')
+	return str.replace(/\\([,= \\])/g, '$1')
 }
 
 /**
@@ -149,6 +149,11 @@ function parseFields(input) {
 			errors.push(`Malformed field "${entry.trim()}" (expected key=value)`)
 			continue
 		}
+		// The client does not escape backslashes, so a trailing one would escape the = after it
+		if (key.endsWith('\\')) {
+			errors.push(`Ignoring field "${entry.trim()}": a field name cannot end with a backslash`)
+			continue
+		}
 
 		if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) {
 			fields.push({ key, type: 'string', value: value.slice(1, -1).replace(/\\(["\\])/g, '$1') })
@@ -189,9 +194,16 @@ function parseTimestamp(input, precision = 'ms') {
 		return (BigInt(str) * factor).toString()
 	}
 
-	// Only ISO style dates: Date.parse also accepts things like "12.5" or "Monday 5"
-	const ms = /^\d{4}-\d{2}-\d{2}/.test(str) ? Date.parse(str) : NaN
-	if (Number.isNaN(ms)) throw new Error(`"${str}" is not a timestamp or a date like 2026-10-31T09:00:00Z`)
+	// Only ISO style dates: Date.parse also accepts things like "12.5" or "Monday 5",
+	// and rolls impossible days over (2026-02-31 becomes 3 March)
+	const invalid = new Error(`"${str}" is not a timestamp or a date like 2026-10-31T09:00:00Z`)
+	const date = /^(\d{4})-(\d{2})-(\d{2})/.exec(str)
+	if (!date) throw invalid
+	const [year, month, day] = date.slice(1).map(Number)
+	const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate()
+	if (month < 1 || month > 12 || day < 1 || day > daysInMonth) throw invalid
+	const ms = Date.parse(str)
+	if (Number.isNaN(ms)) throw invalid
 	return (BigInt(ms) * PRECISION_TO_NS.ms).toString()
 }
 

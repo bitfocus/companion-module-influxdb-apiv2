@@ -17,7 +17,7 @@ Advanced settings:
 - **Request timeout**, **Compress writes (gzip)**, **Ignore TLS certificate errors** (only for self-signed certificates on a trusted network).
 - **Health check interval**: how often the connection checks that InfluxDB is reachable. Set it to 0 to disable.
 
-The connection status shows the reason for problems: an unreachable server, a rejected token, a missing organization or bucket, or data rejected by InfluxDB. It goes back to OK as soon as writes succeed again.
+The connection status shows the reason for problems with the configured bucket: an unreachable server, a rejected token, a missing organization or bucket, or data rejected by InfluxDB. It goes back to OK as soon as writes succeed again. Failures when an action writes to its own **Bucket** or **Organization** don't change the status; they appear in the log and in the `last_error` and `write_errors` variables.
 
 ### Actions
 
@@ -29,7 +29,7 @@ Every text option accepts variables, and any option can be switched to an expres
   - `true` / `false` (also `t`, `f`, `True`, `FALSE`, ...): boolean
   - `"some text"`: string. Commas and `=` are fine inside the quotes; write `\"` for a quote.
 
-  For example `temp=21.5, count=3i, ok=true, note="studio A"`. Leave **Timestamp** empty to use the time of the press, or give a number in the chosen precision or a date such as `2026-10-31T09:00:00Z`. **Bucket** and **Organization** can override the connection's settings for this action.
+  For example `temp=21.5, count=3i, ok=true, note="studio A"`. Leave **Timestamp** empty to use the time of the press, or give a number in the chosen precision or a date such as `2026-10-31T09:00:00Z`. **Bucket** and **Organization** can override the connection's settings for this action. Up to 20 overrides are kept open at once; when more are used, the least recently used one is flushed and closed. Failures on an override are reported in the log and the `last_error` variable rather than the connection status.
 
 - **Write Float Point**, **Write String Point**, **Write Boolean Point**: write one point with a single field. The measurement, tags and field name are escaped for you.
 - **Write**: write one raw line of line protocol from a measurement, tags and fields. String field values must be in double quotes, and you are responsible for escaping. The timestamp is added automatically.
@@ -42,7 +42,7 @@ Every text option accepts variables, and any option can be switched to an expres
 
   An empty result returns nothing (null), or 0 rows. The token needs read access to the bucket. Errors such as a Flux syntax error or a missing bucket appear in the connection log. Variables in the query are replaced before it runs, so a query can depend on other buttons.
 
-**Tags** are comma separated `key=value` pairs, for example `room=studio,source=companion`. Leave the field empty for no tags. Values may contain `=`. Write `\,` for a literal comma.
+**Tags** are comma separated `key=value` pairs, for example `room=studio,source=companion`. Leave the field empty for no tags. Values may contain `=`. Write `\,` for a literal comma or `\ ` for a space; any other backslash is kept as is (for example `C:\temp`), but a tag cannot end with a backslash.
 
 For **Write Boolean Point** in expression mode, the expression can return `true`/`false`, `1`/`0`, `yes`/`no` or `on`/`off`.
 

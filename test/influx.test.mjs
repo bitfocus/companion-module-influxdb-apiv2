@@ -68,6 +68,27 @@ describe('InfluxConnection', () => {
 		])
 	})
 
+	test('beyond 20 overrides the least recently used writer is flushed and closed, not refused', async () => {
+		const c = connect()
+		for (let i = 0; i < 25; i++) c.writePoint(new Point('m').floatField('v', i), { bucket: `b${i}` })
+		expect(c.writeApis.size).toBe(21)
+		await c.close()
+		const buckets = fake.state.writes.map((w) => new URL(w.url, 'http://x').searchParams.get('bucket'))
+		expect(buckets.sort()).toEqual(Array.from({ length: 25 }, (_, i) => `b${i}`).sort())
+	})
+
+	test('using an override again keeps it from being evicted', async () => {
+		const c = connect()
+		for (let i = 0; i < 20; i++) c.writePoint(new Point('m').floatField('v', i), { bucket: `b${i}` })
+		c.writePoint(new Point('m').floatField('v', 99), { bucket: 'b0' })
+		c.writePoint(new Point('m').floatField('v', 100), { bucket: 'new' })
+		const keys = [...c.writeApis.keys()].map((k) => k.split('\n')[1])
+		expect(keys).toContain('b0')
+		expect(keys).not.toContain('b1')
+		expect(keys[0]).toBe('mybucket')
+		await c.close()
+	})
+
 	test('close flushes what is still buffered', async () => {
 		const c = connect()
 		c.writePoint(new Point('m').floatField('v', 2))

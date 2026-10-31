@@ -37,7 +37,10 @@ class InfluxInstance extends InstanceBase {
 
 	/** Queue a lifecycle step behind any that is still running */
 	runLifecycle(step) {
-		this.lifecycle = this.lifecycle.then(step).catch((e) => this.log('error', `Lifecycle error: ${e.message}`))
+		this.lifecycle = this.lifecycle.then(step).catch((e) => {
+			this.log('error', `Lifecycle error: ${e.message}`)
+			this.setStatus(InstanceStatus.UnknownError, e.message)
+		})
 		return this.lifecycle
 	}
 

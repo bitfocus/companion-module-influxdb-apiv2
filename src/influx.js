@@ -4,7 +4,7 @@ const { HealthAPI } = require('@influxdata/influxdb-client-apis')
 /** How long close() waits for the final flush before discarding the buffer */
 const CLOSE_TIMEOUT_MS = 5000
 
-/** Most org/bucket overrides kept open at once, so a bucket name from a changing variable can't grow without bound */
+/** Most org/bucket overrides kept open at once; the least recently used one is closed to make room */
 const MAX_OVERRIDE_TARGETS = 20
 
 /**
@@ -44,6 +44,8 @@ class InfluxConnection {
 
 		/** One buffered writer per org/bucket; actions can target a bucket other than the default */
 		this.writeApis = new Map()
+		/** Evicted override writers still flushing, so close() can wait for them */
+		this.closingWriters = new Set()
 		this.writeApi = this.getWriteApi()
 
 		this.health = new HealthAPI(this.influx)
@@ -92,13 +94,17 @@ class InfluxConnection {
 		const bucket = target.bucket || this.config.bucket
 		const key = `${org}\n${bucket}`
 		let writeApi = this.writeApis.get(key)
-		if (!writeApi) {
+		if (writeApi) {
+			// Keep the map in least recently used order (the configured writer stays first)
+			if (writeApi !== this.writeApi) {
+				this.writeApis.delete(key)
+				this.writeApis.set(key, writeApi)
+			}
+		} else {
 			if (this.closed) throw new Error('Connection is closed')
 			/** @type {WriteTarget} */
 			const info = { org, bucket, isOverride: this.writeApis.size > 0 }
-			if (info.isOverride && this.writeApis.size > MAX_OVERRIDE_TARGETS) {
-				throw new Error(`Too many different buckets/organizations in use (max ${MAX_OVERRIDE_TARGETS})`)
-			}
+			if (info.isOverride && this.writeApis.size > MAX_OVERRIDE_TARGETS) this.evictOldestOverride()
 			writeApi = this.influx.getWriteApi(org, bucket, 'ns', {
 				batchSize: this.config.batchSize,
 				flushInterval: this.config.flushInterval,
@@ -115,6 +121,20 @@ class InfluxConnection {
 			this.writeApis.set(key, writeApi)
 		}
 		return writeApi
+	}
+
+	/** Flush and close the least recently used override writer */
+	evictOldestOverride() {
+		for (const [key, writeApi] of this.writeApis) {
+			if (writeApi === this.writeApi) continue
+			this.writeApis.delete(key)
+			const closing = writeApi
+				.close()
+				.catch(() => writeApi.dispose())
+				.finally(() => this.closingWriters.delete(closing))
+			this.closingWriters.add(closing)
+			return
+		}
 	}
 
 	/**
@@ -159,16 +179,19 @@ class InfluxConnection {
 			if (signal.aborted) return reject(new Error('Query aborted'))
 
 			let cancellable
-			const onAbort = () => {
-				// Reject before cancelling: cancel() can report completion synchronously
-				reject(new Error('Query aborted'))
-				cancellable?.cancel()
-			}
-			signal.addEventListener('abort', onAbort, { once: true })
+			let settled = false
+			/** Settle once: cancel() reports completion synchronously, which would otherwise settle again */
 			const done = (fn) => {
+				if (settled) return
+				settled = true
 				signal.removeEventListener('abort', onAbort)
 				fn()
 			}
+			const onAbort = () => {
+				done(() => reject(new Error('Query aborted')))
+				cancellable?.cancel()
+			}
+			signal.addEventListener('abort', onAbort, { once: true })
 
 			queryApi.queryRows(flux, {
 				useCancellable: (c) => (cancellable = c),
@@ -179,7 +202,7 @@ class InfluxConnection {
 						const { result: _result, table: _table, ...values } = tableMeta.toObject(row)
 						rows.push(values)
 					} else {
-						// Have what we need: stop the server sending the rest (resolve first, as cancel() completes synchronously)
+						// Have what we need: stop the server sending the rest
 						truncated = true
 						done(() => resolve({ rows, count: rows.length, truncated }))
 						cancellable?.cancel()
@@ -207,7 +230,10 @@ class InfluxConnection {
 			timer = setTimeout(() => reject(new Error('Timed out flushing to InfluxDB')), CLOSE_TIMEOUT_MS)
 		})
 		try {
-			await Promise.race([Promise.all([...this.writeApis.values()].map((w) => w.close())), timeout])
+			await Promise.race([
+				Promise.all([...[...this.writeApis.values()].map((w) => w.close()), ...this.closingWriters]),
+				timeout,
+			])
 		} catch (e) {
 			// Could not flush in time (server down?), drop the rest rather than hang shutdown
 			for (const w of this.writeApis.values()) w.dispose()

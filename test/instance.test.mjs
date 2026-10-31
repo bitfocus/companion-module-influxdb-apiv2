@@ -167,6 +167,15 @@ describe('InfluxInstance lifecycle', () => {
 		expect(t.instance.healthTimer).toBeNull()
 	})
 
+	test('an unexpected start-up error shows in the status, not just the log', async () => {
+		await t.instance.init(config(), true, {})
+		t.instance.start = () => {
+			throw new Error('boom')
+		}
+		await t.instance.configUpdated(config(), {})
+		expect(t.lastStatus()).toEqual({ status: 'unknown_error', message: 'boom' })
+	})
+
 	test('changing the config flushes the old buffer to the old server', async () => {
 		await t.instance.init(config(), true, {})
 		await t.runAction('writeFloatPoint', point)
