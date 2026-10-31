@@ -69,6 +69,13 @@ function checkName(label, name) {
 	if (problem) throw new Error(`${label} "${name}": ${problem}`)
 }
 
+/** The raw Write action sends its tags as typed, so it needs different guidance than the point actions */
+const rawTagsOption = {
+	...tagsOption,
+	tooltip:
+		'Raw line protocol tag set, sent exactly as typed: comma separated key=value pairs. Escape commas, equals signs and spaces with a backslash yourself. Leave empty for no tags.',
+}
+
 module.exports = function (self) {
 	/**
 	 * Build a point from the shared measurement/tags/field options.
@@ -190,7 +197,7 @@ module.exports = function (self) {
 				'Write a single line of line protocol. Tags and fields are comma separated key=value pairs, string field values must be in double quotes, and you are responsible for escaping. The timestamp is added automatically.',
 			options: [
 				measurementOption('exampleMeasurement'),
-				tagsOption,
+				rawTagsOption,
 				{
 					id: 'fields',
 					type: 'textinput',

@@ -44,7 +44,7 @@ Every text option accepts variables, and most options can be switched to an expr
 
   **Organization** can override the connection's organization for this query. An empty result returns nothing (null), or 0 rows. The token needs read access to the bucket. Errors such as a Flux syntax error or a missing bucket appear in the connection log. Variables in the query are replaced before it runs, so a query can depend on other buttons.
 
-**Tags** are comma separated `key=value` pairs, for example `room=studio,source=companion`. Leave the field empty for no tags. Values may contain `=` and spaces. These backslash escapes are understood:
+**Tags** (in the point actions; the raw **Write** action sends its tags exactly as typed) are comma separated `key=value` pairs, for example `room=studio,source=companion`. Leave the field empty for no tags. Values may contain `=` and spaces. These backslash escapes are understood:
 
 - `\,` a comma (otherwise a comma starts the next tag)
 - `\=` an equals sign in a tag key

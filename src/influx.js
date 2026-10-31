@@ -133,24 +133,34 @@ class InfluxConnection {
 		for (const [key, writeApi] of this.writeApis) {
 			if (writeApi === this.writeApi) continue
 			this.writeApis.delete(key)
-			// flush(true) also sends points waiting to be retried, which close() alone would drop.
-			// If the flush fails (server down) whatever is left is discarded, so say so.
-			const info = this.writerInfo.get(writeApi)
-			const discard = () => {
-				const dropped = writeApi.dispose()
-				if (dropped > 0) this.onDropped?.(dropped, info)
-			}
-			const closing = writeApi
-				.flush(true)
-				.then(() => writeApi.close(), discard)
-				.catch(discard)
-				.finally(() => {
-					this.closingWriters.delete(writeApi)
-					this.writerInfo.delete(writeApi)
-				})
-			this.closingWriters.set(writeApi, closing)
+			this.retireWriter(writeApi)
 			return
 		}
+	}
+
+	/**
+	 * Send everything a writer holds, including points waiting to be retried (which the client's
+	 * close() alone would drop), then close it. Never rejects: if sending fails, whatever is left is
+	 * discarded and reported through onDropped.
+	 * @param {import('@influxdata/influxdb-client').WriteApi} writeApi
+	 */
+	retireWriter(writeApi) {
+		const closing = writeApi
+			.flush(true)
+			.then(() => writeApi.close())
+			.catch(() => this.discardWriter(writeApi))
+			.finally(() => {
+				this.closingWriters.delete(writeApi)
+				this.writerInfo.delete(writeApi)
+			})
+		this.closingWriters.set(writeApi, closing)
+		return closing
+	}
+
+	/** Stop a writer immediately and report how many lines it still held */
+	discardWriter(writeApi) {
+		const dropped = writeApi.dispose()
+		if (dropped > 0) this.onDropped?.(dropped, this.writerInfo.get(writeApi))
 	}
 
 	/**
@@ -245,14 +255,13 @@ class InfluxConnection {
 		const timeout = new Promise((_, reject) => {
 			timer = setTimeout(() => reject(new Error('Timed out flushing to InfluxDB')), CLOSE_TIMEOUT_MS)
 		})
+		for (const writeApi of this.writeApis.values()) this.retireWriter(writeApi)
+		this.writeApis.clear()
 		try {
-			await Promise.race([
-				Promise.all([...[...this.writeApis.values()].map((w) => w.close()), ...this.closingWriters.values()]),
-				timeout,
-			])
+			await Promise.race([Promise.all(this.closingWriters.values()), timeout])
 		} catch (e) {
-			// Could not flush in time (server down?), drop the rest rather than hang shutdown
-			for (const w of [...this.writeApis.values(), ...this.closingWriters.keys()]) w.dispose()
+			// Could not flush in time (server slow or down): drop the rest rather than hang shutdown
+			for (const writeApi of [...this.closingWriters.keys()]) this.discardWriter(writeApi)
 			throw e
 		} finally {
 			clearTimeout(timer)

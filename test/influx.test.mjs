@@ -125,6 +125,28 @@ describe('InfluxConnection', () => {
 		await c.close()
 	})
 
+	test('closing sends points that were waiting to be retried once the server is back', async () => {
+		fake.state.writeStatus = 503
+		const c = connect({ maxRetries: 3 })
+		c.writePoint(new Point('m').floatField('v', 1))
+		await c.flush().catch(() => {})
+		expect(events.success).toHaveLength(0)
+
+		fake.state.writeStatus = 204
+		await c.close()
+		expect(events.success).toHaveLength(1)
+		expect(events.dropped).toEqual([])
+	})
+
+	test('closing while the server is still down reports the points it had to drop', async () => {
+		fake.state.writeStatus = 503
+		const c = connect({ maxRetries: 3 })
+		c.writePoint(new Point('m').floatField('v', 1))
+		await c.flush().catch(() => {})
+		await c.close()
+		expect(events.dropped).toEqual([{ count: 1, bucket: 'mybucket' }])
+	})
+
 	test('close flushes what is still buffered', async () => {
 		const c = connect()
 		c.writePoint(new Point('m').floatField('v', 2))

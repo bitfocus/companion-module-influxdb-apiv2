@@ -129,12 +129,9 @@ class InfluxInstance extends InstanceBase {
 					this.refreshStatus()
 				},
 				onClientLog: (message) => this.log('debug', `InfluxDB client: ${message}`),
+				// Not limited to the current generation: drops are found while the connection is closing
 				onDropped: (count, target) => {
-					if (generation !== this.generation) return
-					this.log(
-						'warn',
-						`Dropped ${count} point(s) for bucket "${target?.bucket}" that could not be sent before closing its unused writer`,
-					)
+					this.log('warn', `Dropped ${count} line(s) for bucket "${target?.bucket}" that could not be sent to InfluxDB`)
 				},
 			})
 		} catch (e) {

@@ -176,6 +176,26 @@ describe('InfluxInstance lifecycle', () => {
 		expect(t.lastStatus()).toEqual({ status: 'unknown_error', message: 'boom' })
 	})
 
+	test('points dropped while the config is being changed are reported in the log', async () => {
+		await t.instance.init(config({ maxRetries: 3 }), true, {})
+		await vi.waitFor(() => expect(t.lastStatus().status).toBe('ok'))
+		fake.state.writeStatus = 503
+		await t.runAction('writeFloatPoint', point)
+		await t.runAction('flushBuffer')
+
+		await t.instance.configUpdated(config({ maxRetries: 3 }), {})
+		expect(t.logs.some((l) => l.level === 'warn' && /Dropped 1 line\(s\) for bucket "b"/.test(l.message))).toBe(true)
+		fake.state.writeStatus = 204
+	})
+
+	test('the raw Write action explains that its tags are sent as typed', async () => {
+		await t.instance.init(config(), true, {})
+		const tags = t.definitions().actions.writeInflux.options.find((o) => o.id === 'tags')
+		expect(tags.tooltip).toMatch(/exactly as typed/)
+		const pointTags = t.definitions().actions.writeFloatPoint.options.find((o) => o.id === 'tags')
+		expect(pointTags.tooltip).toMatch(/Escapes/)
+	})
+
 	test('changing the config flushes the old buffer to the old server', async () => {
 		await t.instance.init(config(), true, {})
 		await t.runAction('writeFloatPoint', point)
