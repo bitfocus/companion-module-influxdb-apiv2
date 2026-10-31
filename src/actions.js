@@ -109,12 +109,13 @@ module.exports = function (self) {
 			options: [
 				measurementOption(),
 				tagsOption,
-				fieldOption('value'),
+				// Defaults differ from Write Float Point: InfluxDB rejects a field that changes type
+				fieldOption('text'),
 				{
 					id: 'value',
 					type: 'textinput',
 					label: 'Value',
-					default: '0',
+					default: 'hello',
 					useVariables: true,
 				},
 			],

@@ -98,3 +98,15 @@ describe('toBoolean', () => {
 		expect(toBoolean(input)).toBe(expected)
 	})
 })
+
+describe('action defaults', () => {
+	test('default point actions do not write the same field with different types', () => {
+		const { definitions } = setup()
+		const key = (id) => {
+			const opts = Object.fromEntries(definitions[id].options.map((o) => [o.id, o.default]))
+			return `${opts.measurement}.${opts.field}`
+		}
+		const keys = ['writeFloatPoint', 'writeStringPoint', 'writeBooleanPoint'].map(key)
+		expect(new Set(keys).size).toBe(keys.length)
+	})
+})
