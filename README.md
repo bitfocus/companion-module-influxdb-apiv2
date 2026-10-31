@@ -14,24 +14,34 @@ yarn package
 
 # Changelog
 
-## Unreleased (2.0.0)
+## 2.0.0
 
-- Requires Companion 5.0 or later (module API 2.1)
-- The API token is now stored as a secret (moved automatically from configs saved by the beta)
-- Writes are flushed every second by default (previously every 60 seconds), configurable along with batch size, retries, timeout, gzip and TLS options
-- New default tags setting, applied to every point
-- The connection checks the token, org and bucket at startup and periodically, without writing data
-- Connection status now reports failed writes (bad token, missing bucket or org, rejected data) and runs periodic health checks
-- Buffered points are flushed when the connection is disabled or its config changes, instead of being lost
-- Fixed Write Float Point ignoring variables in the measurement and field name
-- Fixed tag parsing: empty tags, values containing `=`, whitespace and escaped commas
-- Fixed the Write action producing invalid line protocol with empty tags, and imprecise timestamps
-- Write Boolean Point accepts expressions (true/false, 1/0, yes/no, on/off)
-- New Write Point action: any number of typed fields (float, integer, unsigned, boolean, string), optional timestamp and per-action bucket/org
-- Variables for connection status, server version, points queued and written, write errors and last write time
-- Feedbacks: Connection OK and Writes failing
-- Presets: status, counters, flush and a button that logs its own presses
-- New Run Flux Query action: returns the first value, first row, all rows or a row count, stored in a variable via Companion's action results
+Requires **Companion 5.0 or later** (module API 2.1). Existing connections and buttons from 1.x carry over: the API token moves into Companion's secret store automatically, and every existing action keeps its options.
+
+### New
+
+- **Write Point** action: any number of fields, typed like line protocol (`21.5`, `3i`, `3u`, `true`, `"text"`), an optional timestamp, and a per-action bucket or organization
+- **Run Flux Query** action (InfluxDB 2.x): returns the first value, the first row, all rows or a row count, which Companion can store in a variable
+- Variables: connection status and message, server version, points queued and written, write errors, last error, last write time
+- Feedbacks: **Connection OK** and **Writes failing**
+- Presets: connection status, counters, flush, and a button that logs its own presses
+- Settings: default tags, flush interval, batch size, retries, request timeout, gzip, ignore TLS errors, health check interval
+
+### Changed
+
+- The API token is stored as a secret
+- Points are sent every second by default (previously every 60 seconds); see **Flush interval**
+- Every option accepts variables, and any option can be switched to an expression
+- The connection status shows why writes fail (unreachable server, rejected token, missing organization or bucket, rejected data) and checks the token, organization and bucket at startup and periodically without writing any data
+
+### Fixed
+
+- Write Float Point wrote `$(...)` literally in the measurement and field name
+- Buffered points were lost when the connection was disabled or its settings changed
+- Write failures were never reported; a wrong token still showed OK
+- Tags: empty tags, values containing `=`, extra spaces, escaped commas and backslashes
+- The Write action produced invalid line protocol with empty tags, and imprecise timestamps
+- Write Boolean Point accepts true/false, 1/0, yes/no and on/off from expressions
 
 ## 1.0.0
 

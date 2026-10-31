@@ -1,6 +1,6 @@
 {
 	"name": "companion-module-influxdb-apiv2",
-	"version": "1.0.2",
+	"version": "2.0.0",
 	"main": "src/index.mjs",
 	"scripts": {
 		"format": "prettier -w .",
