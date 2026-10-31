@@ -1,5 +1,5 @@
 const { Point, currentTime } = require('@influxdata/influxdb-client')
-const { parseTags, buildLine } = require('./lineprotocol')
+const { parseTags, parseFields, parseTimestamp, buildLine } = require('./lineprotocol')
 
 const measurementOption = (defaultValue = 'example') => ({
 	id: 'measurement',
@@ -174,6 +174,104 @@ module.exports = function (self) {
 				const line = buildLine(options.measurement, options.tags, options.fields, currentTime.ns())
 				connection.writeRecords([line])
 				return line
+			}),
+		},
+		writePoint: {
+			name: 'Write Point',
+			description:
+				'Write one point with any number of fields. The field type comes from how the value is written, like line protocol: 21.5 is a float, 3i an integer, 3u an unsigned integer, true/false a boolean and "text" a string.',
+			options: [
+				measurementOption(),
+				tagsOption,
+				{
+					id: 'fields',
+					type: 'textinput',
+					label: 'Fields',
+					default: 'value=1',
+					tooltip:
+						'Comma separated key=value pairs, eg temp=21.5, count=3i, ok=true, note="hello, world". Use \\" for a quote inside text.',
+					useVariables: true,
+				},
+				{
+					id: 'timestamp',
+					type: 'textinput',
+					label: 'Timestamp (optional)',
+					default: '',
+					tooltip:
+						'Leave empty for the time of the button press. Accepts a number in the precision below, or a date like 2026-10-31T09:00:00Z.',
+					useVariables: true,
+				},
+				{
+					id: 'precision',
+					type: 'dropdown',
+					label: 'Timestamp precision',
+					default: 'ms',
+					choices: [
+						{ id: 's', label: 'Seconds' },
+						{ id: 'ms', label: 'Milliseconds' },
+						{ id: 'us', label: 'Microseconds' },
+						{ id: 'ns', label: 'Nanoseconds' },
+					],
+				},
+				{
+					id: 'bucket',
+					type: 'textinput',
+					label: 'Bucket (optional)',
+					default: '',
+					tooltip: "Write to this bucket instead of the connection's bucket",
+					useVariables: true,
+				},
+				{
+					id: 'org',
+					type: 'textinput',
+					label: 'Organization (optional)',
+					default: '',
+					tooltip: "Use this organization instead of the connection's organization",
+					useVariables: true,
+				},
+			],
+			callback: writeAction('Write Point', (options, connection) => {
+				const measurement = String(options.measurement ?? '').trim()
+				if (!measurement) throw new Error('Measurement is required')
+
+				const { fields, errors } = parseFields(options.fields)
+				if (errors.length && !fields.length) throw new Error(errors.join('; '))
+				if (!fields.length) throw new Error('At least one field is required')
+				for (const error of errors) self.log('warn', `Write Point: ${error}`)
+
+				const point = new Point(measurement)
+				const tagResult = parseTags(options.tags)
+				for (const error of tagResult.errors) self.log('warn', error)
+				for (const [key, value] of Object.entries(tagResult.tags)) point.tag(key, value)
+
+				for (const field of fields) {
+					switch (field.type) {
+						case 'float':
+							point.floatField(field.key, field.value)
+							break
+						case 'int':
+							point.intField(field.key, field.value)
+							break
+						case 'uint':
+							point.uintField(field.key, field.value)
+							break
+						case 'bool':
+							point.booleanField(field.key, field.value)
+							break
+						case 'string':
+							point.stringField(field.key, field.value)
+							break
+					}
+				}
+
+				const timestamp = parseTimestamp(options.timestamp, options.precision)
+				if (timestamp) point.timestamp(timestamp)
+
+				connection.writePoint(point, {
+					bucket: String(options.bucket ?? '').trim(),
+					org: String(options.org ?? '').trim(),
+				})
+				return point.toString()
 			}),
 		},
 		flushBuffer: {

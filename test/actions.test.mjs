@@ -5,20 +5,24 @@ const { toBoolean } = UpdateActions
 
 function setup() {
 	const written = []
+	const targets = []
 	const logs = []
 	let definitions
 	const self = {
 		setActionDefinitions: (defs) => (definitions = defs),
 		log: (level, message) => logs.push({ level, message }),
 		requireConnection: () => ({
-			writePoint: (point) => written.push(point.toLineProtocol()),
+			writePoint: (point, target) => {
+				written.push(point.toLineProtocol())
+				targets.push(target)
+			},
 			writeRecords: (lines) => written.push(...lines),
 			flush: async () => written.push('<flush>'),
 		}),
 	}
 	UpdateActions(self)
 	const run = (id, options) => definitions[id].callback({ options }, {})
-	return { written, logs, definitions, run, self }
+	return { written, targets, logs, definitions, run, self }
 }
 
 /** Strip the trailing timestamp from a line */
@@ -30,7 +34,7 @@ describe('actions', () => {
 
 	test('keeps the v1 action ids', () => {
 		expect(Object.keys(t.definitions).sort()).toEqual(
-			['flushBuffer', 'writeBooleanPoint', 'writeFloatPoint', 'writeInflux', 'writeStringPoint'].sort(),
+			['flushBuffer', 'writeBooleanPoint', 'writeFloatPoint', 'writeInflux', 'writePoint', 'writeStringPoint'].sort(),
 		)
 	})
 
@@ -75,6 +79,33 @@ describe('actions', () => {
 		).resolves.toBeUndefined()
 		await expect(t.run('flushBuffer', {})).resolves.toBeUndefined()
 		expect(t.logs.filter((l) => l.level === 'warn')).toHaveLength(2)
+	})
+
+	test('write point with typed fields, timestamp and bucket override', async () => {
+		await t.run('writePoint', {
+			measurement: 'm',
+			tags: 'a=1',
+			fields: 'f=1.5, i=2i, b=false, s="x, y"',
+			timestamp: '1761900000',
+			precision: 's',
+			bucket: ' other ',
+			org: '',
+		})
+		expect(t.written).toEqual(['m,a=1 b=F,f=1.5,i=2i,s="x, y" 1761900000000000000'])
+		expect(t.targets).toEqual([{ bucket: 'other', org: '' }])
+	})
+
+	test('write point skips bad fields but writes the rest', async () => {
+		await t.run('writePoint', { measurement: 'm', tags: '', fields: 'good=1, bad=nope', precision: 'ms' })
+		expect(t.written.map(noTs)).toEqual(['m good=1'])
+		expect(t.logs.some((l) => l.level === 'warn' && l.message.includes('bad'))).toBe(true)
+	})
+
+	test('write point with no valid fields writes nothing', async () => {
+		await t.run('writePoint', { measurement: 'm', tags: '', fields: 'bad=nope', precision: 'ms' })
+		await t.run('writePoint', { measurement: 'm', tags: '', fields: '', precision: 'ms' })
+		await t.run('writePoint', { measurement: 'm', tags: '', fields: 'a=1', timestamp: 'later', precision: 'ms' })
+		expect(t.written).toEqual([])
 	})
 
 	test('flush', async () => {

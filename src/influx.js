@@ -17,8 +17,9 @@ class InfluxConnection {
 	 * @param {(lines: string[]) => void} callbacks.onWriteSuccess
 	 * @param {(error: Error, lines: string[], attempt: number) => void} callbacks.onWriteFailed
 	 * @param {(message: string) => void} [callbacks.onClientLog] the client's own diagnostics (retries etc)
+	 * @param {(count: number) => void} [callbacks.onQueued] lines added to the buffer
 	 */
-	constructor(config, { onWriteSuccess, onWriteFailed, onClientLog }) {
+	constructor(config, { onWriteSuccess, onWriteFailed, onClientLog, onQueued }) {
 		// By default the client prints every failure with a full stack trace to the console.
 		// Failures already reach onWriteFailed, so route its own messages somewhere quieter.
 		setLogger({
@@ -33,7 +34,9 @@ class InfluxConnection {
 			transportOptions: { rejectUnauthorized: !config.ignoreTlsErrors },
 		})
 
-		this.writeApi = this.influx.getWriteApi(config.org, config.bucket, 'ns', {
+		this.config = config
+		this.onQueued = onQueued
+		this.writeOptions = {
 			batchSize: config.batchSize,
 			flushInterval: config.flushInterval,
 			maxRetries: config.maxRetries,
@@ -45,7 +48,11 @@ class InfluxConnection {
 				onWriteFailed(error, lines, attempt)
 				return undefined
 			},
-		})
+		}
+
+		/** One buffered writer per org/bucket; actions can target a bucket other than the default */
+		this.writeApis = new Map()
+		this.writeApi = this.getWriteApi()
 
 		this.health = new HealthAPI(this.influx)
 		this.closed = false
@@ -82,19 +89,44 @@ class InfluxConnection {
 		}
 	}
 
-	/** @param {import('@influxdata/influxdb-client').Point} point */
-	writePoint(point) {
-		this.writeApi.writePoint(point)
+	/**
+	 * The writer for an org/bucket, created on first use. Empty values mean the configured default.
+	 * @param {{ org?: string, bucket?: string }} [target]
+	 */
+	getWriteApi(target = {}) {
+		const org = target.org || this.config.org
+		const bucket = target.bucket || this.config.bucket
+		const key = `${org}\n${bucket}`
+		let writeApi = this.writeApis.get(key)
+		if (!writeApi) {
+			if (this.closed) throw new Error('Connection is closed')
+			writeApi = this.influx.getWriteApi(org, bucket, 'ns', this.writeOptions)
+			this.writeApis.set(key, writeApi)
+		}
+		return writeApi
 	}
 
-	/** @param {string[]} lines */
-	writeRecords(lines) {
-		this.writeApi.writeRecords(lines)
+	/**
+	 * @param {import('@influxdata/influxdb-client').Point} point
+	 * @param {{ org?: string, bucket?: string }} [target]
+	 */
+	writePoint(point, target) {
+		this.getWriteApi(target).writePoint(point)
+		this.onQueued?.(1)
+	}
+
+	/**
+	 * @param {string[]} lines
+	 * @param {{ org?: string, bucket?: string }} [target]
+	 */
+	writeRecords(lines, target) {
+		this.getWriteApi(target).writeRecords(lines)
+		this.onQueued?.(lines.length)
 	}
 
 	/** Send everything that is buffered now */
 	async flush() {
-		await this.writeApi.flush()
+		await Promise.all([...this.writeApis.values()].map((w) => w.flush()))
 	}
 
 	/** Flush what is buffered and stop the writer. Safe to call more than once. */
@@ -107,10 +139,10 @@ class InfluxConnection {
 			timer = setTimeout(() => reject(new Error('Timed out flushing to InfluxDB')), CLOSE_TIMEOUT_MS)
 		})
 		try {
-			await Promise.race([this.writeApi.close(), timeout])
+			await Promise.race([Promise.all([...this.writeApis.values()].map((w) => w.close())), timeout])
 		} catch (e) {
 			// Could not flush in time (server down?), drop the rest rather than hang shutdown
-			this.writeApi.dispose()
+			for (const w of this.writeApis.values()) w.dispose()
 			throw e
 		} finally {
 			clearTimeout(timer)

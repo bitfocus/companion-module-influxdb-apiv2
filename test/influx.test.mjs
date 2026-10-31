@@ -57,6 +57,17 @@ describe('InfluxConnection', () => {
 		expect(events.success).toHaveLength(1)
 	})
 
+	test('a bucket override gets its own writer and is flushed and closed too', async () => {
+		const c = connect()
+		c.writePoint(new Point('m').floatField('v', 1))
+		c.writePoint(new Point('m').floatField('v', 2), { bucket: 'other' })
+		await c.close()
+		expect(fake.state.writes.map((w) => new URL(w.url, 'http://x').searchParams.get('bucket')).sort()).toEqual([
+			'mybucket',
+			'other',
+		])
+	})
+
 	test('close flushes what is still buffered', async () => {
 		const c = connect()
 		c.writePoint(new Point('m').floatField('v', 2))
